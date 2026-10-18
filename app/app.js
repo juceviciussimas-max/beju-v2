@@ -31,6 +31,7 @@ const Demo = {
   async signOut() { const d = this.load(); d.session = null; this.save(d); },
   async purchases(uid) { return this.load().purchases.filter(p => p.user_id === uid); },
   async allPurchases() { return this.load().purchases; },
+  async crmClients() { return []; }, async crmPayments() { return []; }, async crmDeliveries() { return []; }, async updateClient() {},
   async addPurchase(uid, pack) { return this.buy(uid, pack); },
   async buy(uid, pack) {
     const d = this.load(), now = Date.now();
@@ -66,6 +67,10 @@ function SupabaseBackend(url, key) {
     async signOut() { await sb.auth.signOut(); },
     async purchases(uid) { return must(await sb.from("purchases").select("*").eq("user_id", uid)).map(p => ({ ...p, created_at: Date.parse(p.created_at), expires_at: Date.parse(p.expires_at) })); },
     async allPurchases() { return must(await sb.from("purchases").select("*")).map(p => ({ ...p, created_at: Date.parse(p.created_at), expires_at: Date.parse(p.expires_at) })); },
+    async crmClients() { return must(await sb.from("clients").select("*")); },
+    async crmPayments() { return must(await sb.from("payments").select("*")).map(p => ({ ...p, paid_at: Date.parse(p.paid_at) })); },
+    async crmDeliveries() { return must(await sb.from("deliveries").select("*")).map(d => ({ ...d, delivered_at: d.delivered_at ? Date.parse(d.delivered_at) : null })); },
+    async updateClient(id, patch) { must(await sb.from("clients").update(patch).eq("id", id)); },
     async addPurchase(uid, pack) { must(await sb.from("purchases").insert({ user_id: uid, pack_id: pack.id, videos: pack.videos, amount: pack.price })); },
     async buy(uid, pack, email) {   // real money: Stripe Payment Link; the webhook adds the credits
       const u = new URL(pack.link); u.searchParams.set("prefilled_email", email); u.searchParams.set("client_reference_id", uid);
@@ -412,65 +417,77 @@ async function admin() {
   view.querySelectorAll("[data-del]").forEach(i => i.onchange = async () => { toast("Uploading…"); await api.deliver(i.dataset.del, i.files[0]); toast("Delivered"); route(); });
 }
 
-/* ---------------- founders: overview, clients, client page (admins only) ---------------- */
+/* ---------------- founders: overview, clients, client page (admins only) ----------------
+   Clients = every paying client (CRM tables, filled from Stripe + Drive by scripts/crm_sync.py and the Stripe webhook),
+   plus portal sign-ups that haven't paid yet. */
 const money = n => "$" + Math.round(Number(n || 0)).toLocaleString("en-US");
 const ago = t => { if (!t) return "—"; const m = Math.round((Date.now() - t) / 6e4); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+const shortDate = t => t ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—";
+const linkOut = (u, label) => u ? `<a class="pill-link" href="${esc(/^https?:/.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener">${label}</a>` : "";
 async function crm() {
-  const [us, ps, vs] = await Promise.all([api.users(), api.allPurchases(), api.videos(null)]);
+  const [cl, pay, del, us, ps, vs] = await Promise.all([api.crmClients(), api.crmPayments(), api.crmDeliveries(), api.users(), api.allPurchases(), api.videos(null)]);
   const now = Date.now();
-  const clients = us.filter(u => !u.is_admin).map(u => {
-    const p = ps.filter(x => x.user_id === u.id), v = vs.filter(x => x.user_id === u.id);
-    const live = p.filter(x => x.expires_at > now);
+  const linked = new Set(cl.map(c => c.user_id).filter(Boolean));
+  const signups = us.filter(u => !u.is_admin && !linked.has(u.id)).map(u => ({ id: "u-" + u.id, name: u.name || u.email, emails: [u.email], user_id: u.id, created_at: u.created_at, portalOnly: true }));
+  const clients = [...cl, ...signups].map(c => {
+    const p = pay.filter(x => x.client_id === c.id && !x.refunded), d = del.filter(x => x.client_id === c.id);
+    const pp = c.user_id ? ps.filter(x => x.user_id === c.user_id) : [], v = c.user_id ? vs.filter(x => x.user_id === c.user_id) : [];
+    const live = pp.filter(x => x.expires_at > now);
     const left = live.reduce((s, x) => s + Math.max(0, x.videos - v.filter(y => y.purchase_id === x.id).length), 0);
-    const exp = live.filter(x => x.videos > v.filter(y => y.purchase_id === x.id).length).map(x => x.expires_at).sort()[0] || null;
-    const last = Math.max(Date.parse(u.created_at) || 0, ...p.map(x => x.created_at), ...v.map(x => x.delivered_at || x.created_at));
     const st = s => v.filter(x => x.status === s).length;
-    return { ...u, purchases: p, videos: v, paid: p.reduce((s, x) => s + Number(x.amount || 0), 0), left, exp, last,
-             done: st("approved"), ready: st("ready"), working: st("received") + st("editing") + st("revision") };
+    const acts = [...p.map(x => x.paid_at), ...d.map(x => x.delivered_at || 0), ...v.map(x => x.delivered_at || x.created_at)].filter(Boolean);
+    const times = acts.length ? acts : [Date.parse(c.created_at) || 0];
+    return { ...c, pays: p, dels: d, videos: v, paid: p.reduce((s, x) => s + Number(x.amount || 0), 0),
+             shorts: d.length + v.filter(x => x.delivered_at).length, left, last: Math.max(...times),
+             working: st("received") + st("editing") + st("revision"), ready: st("ready"), firstPaid: p.length ? Math.min(...p.map(x => x.paid_at)) : null };
   }).sort((a, b) => b.last - a.last);
-  return { clients, ps, vs };
+  return { clients, pay, vs };
 }
-const clientState = c => c.working ? ["In edit", "st-editing"] : c.ready ? ["Waiting on client", "st-ready"] : c.left ? (c.exp && c.exp - Date.now() < 4 * 864e5 ? ["Credits expiring", "st-revision"] : ["Has credits", "st-received"]) : c.paid ? ["Out of credits", "st-approved"] : ["No pack yet", "st-received"];
+const clientState = c => c.working ? ["In edit", "st-editing"] : c.ready ? ["Waiting on client", "st-ready"] : c.left ? ["Has credits", "st-received"]
+  : c.paid ? (Date.now() - c.last < 30 * 864e5 ? ["Active", "st-approved"] : ["Quiet 30d+", "st-revision"]) : c.portalOnly ? ["Signed up", "st-received"] : ["No Stripe record", "st-revision"];
 
 async function team() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
-  const { clients, ps, vs } = await crm();
-  const rev = ps.reduce((s, x) => s + Number(x.amount || 0), 0);
+  const { clients, pay, vs } = await crm();
+  const ok = pay.filter(x => !x.refunded);
+  const rev = ok.reduce((s, x) => s + Number(x.amount || 0), 0);
   const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
-  const revM = ps.filter(x => x.created_at >= +month).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const revM = ok.filter(x => x.paid_at >= +month).reduce((s, x) => s + Number(x.amount || 0), 0);
   const waitingUs = vs.filter(v => ["received", "editing", "revision"].includes(v.status)).sort((a, b) => a.created_at - b.created_at);
   const waitingThem = vs.filter(v => v.status === "ready");
-  const who = id => clients.find(c => c.id === id) || {};
-  const row = (v, right) => `<a class="trow" href="#/v/${v.id}"><span><b>${esc(v.title)}</b><span class="small muted">${esc(who(v.user_id).name || who(v.user_id).email || "")}</span></span><span class="row">${chip(v.status)}<span class="small muted">${right}</span></span></a>`;
+  const who = uid => clients.find(c => c.user_id === uid) || {};
+  const row = (v, right) => `<a class="trow" href="#/v/${v.id}"><span><b>${esc(v.title)}</b><span class="small muted">${esc(who(v.user_id).name || "")}</span></span><span class="row">${chip(v.status)}<span class="small muted">${right}</span></span></a>`;
+  const recent = ok.slice().sort((a, b) => b.paid_at - a.paid_at).slice(0, 6);
   view.innerHTML = head("Overview", `Founders only · ${today()}`) + `
     <div class="grid kpis">
-      <div class="card kpi hero"><span class="k-l">Revenue, all time</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(rev)}</span><span class="k-s">${money(revM)} this month</span></div>
-      <a class="card kpi" href="#/clients"><span class="k-l">Paying clients</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v" data-count="${clients.filter(c => c.paid).length}">0</span><span class="k-s">${clients.length} accounts</span></a>
-      <a class="card kpi" href="#/admin"><span class="k-l">Waiting on us</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v" data-count="${waitingUs.length}">0</span><span class="k-s">to edit or fix</span></a>
-      <div class="card kpi"><span class="k-l">Shorts delivered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${vs.filter(v => v.delivered_at).length}">0</span><span class="k-s">${vs.filter(v => v.status === "approved").length} approved</span></div>
+      <div class="card kpi hero"><span class="k-l">Revenue, all time</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(rev)}</span><span class="k-s">${money(revM)} this month · Stripe</span></div>
+      <a class="card kpi" href="#/clients"><span class="k-l">Paying clients</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v" data-count="${clients.filter(c => c.paid).length}">0</span><span class="k-s">${clients.filter(c => c.paid && Date.now() - c.last < 30 * 864e5).length} active in 30 days</span></a>
+      <a class="card kpi" href="#/admin"><span class="k-l">Waiting on us</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v" data-count="${waitingUs.length}">0</span><span class="k-s">portal orders to edit or fix</span></a>
+      <div class="card kpi"><span class="k-l">Videos delivered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${clients.reduce((s, c) => s + c.shorts, 0)}">0</span><span class="k-s">Drive + portal, all clients</span></div>
     </div>
     <div class="grid two">
-      <div class="card"><div class="sec-h"><h2>Waiting on us</h2><a href="#/admin">All orders →</a></div>
-        ${waitingUs.length ? `<div class="tlist">${waitingUs.map(v => row(v, "since " + ago(v.created_at))).join("")}</div>` : `<p class="small muted">Nothing waiting. Nice.</p>`}</div>
-      <div class="card"><div class="sec-h"><h2>Waiting on clients</h2></div>
-        ${waitingThem.length ? `<div class="tlist">${waitingThem.map(v => row(v, "delivered " + ago(v.delivered_at))).join("")}</div>` : `<p class="small muted">No Shorts waiting for approval.</p>`}</div>
+      <div class="card"><div class="sec-h"><h2>Latest payments</h2><a href="#/clients">All clients →</a></div>
+        ${recent.length ? `<div class="tlist">${recent.map(p => { const c = clients.find(x => x.id === p.client_id) || {}; return `<a class="trow" href="#/client/${c.id}"><span><b>${esc(c.name || p.payer_name || "Unknown")}</b><span class="small muted">${shortDate(p.paid_at)}${p.package ? " · " + esc(p.package) : ""}</span></span><span class="mono">${money(p.amount)}</span></a>`; }).join("")}</div>` : `<p class="small muted">No payments yet.</p>`}</div>
+      <div class="card"><div class="sec-h"><h2>Waiting</h2></div>
+        <p class="label" style="margin:0 0 8px">On us</p>${waitingUs.length ? `<div class="tlist">${waitingUs.map(v => row(v, "since " + ago(v.created_at))).join("")}</div>` : `<p class="small muted">Nothing waiting. Nice.</p>`}
+        <p class="label" style="margin:16px 0 8px">On clients</p>${waitingThem.length ? `<div class="tlist">${waitingThem.map(v => row(v, "delivered " + ago(v.delivered_at))).join("")}</div>` : `<p class="small muted">No Shorts waiting for approval.</p>`}</div>
     </div>`;
 }
 
 async function clients() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   const { clients } = await crm();
-  view.innerHTML = head("Clients", `${clients.length} accounts · ${clients.filter(c => c.paid).length} paying`, `<input id="q" class="search" placeholder="Search name or email">`) + `
-    <div class="card tablebox"><table><thead><tr><th>Client</th><th>Paid</th><th>Shorts</th><th>Credits left</th><th>Status</th><th>Last activity</th></tr></thead><tbody>
-    ${clients.map(c => { const [st, cls] = clientState(c); const total = c.videos.length;
-      return `<tr class="crow" data-q="${esc((c.name + " " + c.email).toLowerCase())}" data-href="#/client/${c.id}">
-        <td><b style="color:var(--ink)">${esc(c.name || "—")}</b><br><span class="small muted">${esc(c.email)}</span></td>
-        <td class="mono">${money(c.paid)}</td>
-        <td><span class="mono">${c.done}/${total}</span> done<div class="mini"><i style="width:${total ? Math.round(c.done / total * 100) : 0}%"></i></div></td>
-        <td class="mono">${c.left}${c.exp ? ` <span class="small muted">· ${days(c.exp - Date.now())}d</span>` : ""}</td>
+  view.innerHTML = head("Clients", `${clients.filter(c => c.paid).length} paying · ${money(clients.reduce((s, c) => s + c.paid, 0))} all time`, `<input id="q" class="search" placeholder="Search name, email or show">`) + `
+    <div class="card tablebox"><table><thead><tr><th>Client</th><th>Paid</th><th>Videos done</th><th>Channels</th><th>Status</th><th>Last activity</th></tr></thead><tbody>
+    ${clients.map(c => { const [st, cls] = clientState(c);
+      return `<tr class="crow" data-q="${esc((c.name + " " + (c.emails || []).join(" ") + " " + (c.show || "")).toLowerCase())}" data-href="#/client/${c.id}">
+        <td><b style="color:var(--ink)">${esc(c.name)}</b><br><span class="small muted">${esc(c.show || (c.emails || [])[0] || "")}</span></td>
+        <td class="mono">${money(c.paid)}<br><span class="small muted">${c.pays.length} payment${c.pays.length === 1 ? "" : "s"}</span></td>
+        <td class="mono">${c.shorts}${c.working ? ` <span class="small muted">+${c.working} in edit</span>` : ""}${c.left ? `<br><span class="small muted">${c.left} credits left</span>` : ""}</td>
+        <td><div class="row">${linkOut(c.youtube, "YouTube")}${linkOut(c.instagram, "Instagram")}${!c.youtube && !c.instagram ? `<span class="small muted">add →</span>` : ""}</div></td>
         <td><span class="chip ${cls}">${st}</span></td><td class="small muted">${ago(c.last)}</td></tr>`; }).join("") || `<tr><td colspan="6" class="muted">No clients yet.</td></tr>`}
     </tbody></table></div>`;
-  view.querySelectorAll(".crow").forEach(r => r.onclick = () => location.hash = r.dataset.href);
+  view.querySelectorAll(".crow").forEach(r => r.onclick = e => { if (!e.target.closest("a")) location.hash = r.dataset.href; });
   $("#q").oninput = e => { const q = e.target.value.toLowerCase(); view.querySelectorAll(".crow").forEach(r => r.hidden = !r.dataset.q.includes(q)); };
 }
 
@@ -481,26 +498,47 @@ async function clientPage(id) {
   if (!c) { view.innerHTML = `<div class="card empty"><h3>Client not found</h3></div>`; return; }
   const urls = await Promise.all(c.videos.map(v => api.playable(v)));
   const [st, cls] = clientState(c);
-  view.innerHTML = `<a href="#/clients" class="back">← Clients</a>` + head(esc(c.name || c.email), `${esc(c.email)} · joined ${new Date(c.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · <span class="chip ${cls}">${st}</span>`) + `
+  const orders = [...new Set(c.dels.map(d => d.order_name))];
+  const field = (k, label, ph) => `<label for="f-${k}">${label}</label><input id="f-${k}" data-k="${k}" value="${esc(c[k] || "")}" placeholder="${ph}">`;
+  view.innerHTML = `<a href="#/clients" class="back">← Clients</a>` + head(esc(c.name), `${esc(c.show || "")}${c.show ? " · " : ""}${esc((c.emails || []).join(", "))} · <span class="chip ${cls}">${st}</span>`,
+      `<div class="row">${linkOut(c.youtube, "YouTube ↗")}${linkOut(c.instagram, "Instagram ↗")}${linkOut(c.website, "Website ↗")}</div>`) + `
     <div class="grid kpis">
-      <div class="card kpi hero"><span class="k-l">Paid</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(c.paid)}</span><span class="k-s">${c.purchases.length} pack${c.purchases.length === 1 ? "" : "s"}</span></div>
-      <div class="card kpi"><span class="k-l">Credits left</span><span class="k-ic t-gold">${icon("film")}</span><span class="k-v" data-count="${c.left}">0</span><span class="k-s">${c.exp ? `use within ${days(c.exp - Date.now())} days` : "no active pack"}</span></div>
+      <div class="card kpi hero"><span class="k-l">Paid, all time</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(c.paid)}</span><span class="k-s">${c.pays.length} payment${c.pays.length === 1 ? "" : "s"} · client since ${shortDate(c.firstPaid)}</span></div>
+      <div class="card kpi"><span class="k-l">Videos delivered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${c.shorts}">0</span><span class="k-s">${orders.length ? orders.length + " order folder" + (orders.length === 1 ? "" : "s") + " in Drive" : "via the portal"}</span></div>
       <div class="card kpi"><span class="k-l">In edit</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v" data-count="${c.working}">0</span><span class="k-s">${c.ready} waiting for approval</span></div>
-      <div class="card kpi"><span class="k-l">Approved</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${c.done}">0</span><span class="k-s">of ${c.videos.length} Shorts</span></div>
+      <div class="card kpi"><span class="k-l">Credits left</span><span class="k-ic t-gold">${icon("film")}</span><span class="k-v" data-count="${c.left}">0</span><span class="k-s">${c.user_id ? "portal account linked" : "no portal account yet"}</span></div>
     </div>
     <div class="grid two">
-      <div class="card"><div class="sec-h"><h2>Shorts</h2></div>${c.videos.length ? `<div class="vlist">${c.videos.map((v, i) => videoCard(v, urls[i])).join("")}</div>` : `<p class="small muted">No Shorts yet.</p>`}</div>
-      <div class="card"><div class="sec-h"><h2>Packs</h2></div>
-        ${c.purchases.length ? `<div class="tlist">${c.purchases.sort((a, b) => b.created_at - a.created_at).map(p => `<div class="trow"><span><b>${p.videos} Short${p.videos > 1 ? "s" : ""}</b><span class="small muted">${new Date(p.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}${p.stripe_session ? " · Stripe" : " · added by hand"}</span></span><span class="row"><span class="mono">${money(p.amount)}</span><span class="small muted">${p.expires_at > Date.now() ? `${days(p.expires_at - Date.now())}d left` : "expired"}</span></span></div>`).join("")}</div>` : `<p class="small muted">No packs yet.</p>`}
-        <div class="sec-h" style="margin:18px 0 8px"><b style="color:var(--ink);font-size:14px">Add a pack by hand</b></div>
-        <p class="small muted" style="margin:0 0 10px">For payments outside the portal (e.g. a Stripe link from an email).</p>
-        <div class="row">${CFG.packs.map(p => `<button class="btn btn-line btn-sm" data-add="${p.id}">+ ${p.videos} (${money(p.price)})</button>`).join("")}</div>
+      <div class="stack">
+        ${c.videos.length ? `<div class="card"><div class="sec-h"><h2>Portal Shorts</h2></div><div class="vlist">${c.videos.map((v, i) => videoCard(v, urls[i])).join("")}</div></div>` : ""}
+        <div class="card"><div class="sec-h"><h2>Delivered videos</h2><span class="small muted">${c.dels.length} in Drive</span></div>
+          ${c.dels.length ? orders.map(o => `<p class="label" style="margin:14px 0 8px">${esc(o)}</p><div class="tlist">${c.dels.filter(d => d.order_name === o).sort((a, b) => (a.delivered_at || 0) - (b.delivered_at || 0)).map(d =>
+            `<button class="trow vrow" data-play="${esc(d.id)}"><span><b>${esc(d.title)}</b><span class="small muted">${shortDate(d.delivered_at)}${d.duration_s ? " · " + fmtTime(d.duration_s) : ""}</span></span><span class="row"><span class="small muted">Play</span>${icon("film")}</span></button>`).join("")}</div>`).join("")
+            : `<p class="small muted">No Drive deliveries on file.</p>`}</div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Payments</h2></div>
+          ${c.pays.length ? `<div class="tlist">${c.pays.slice().sort((a, b) => b.paid_at - a.paid_at).map(p => `<div class="trow"><span><b>${money(p.amount)}</b><span class="small muted">${shortDate(p.paid_at)}${p.package ? " · " + esc(p.package) : ""}${p.description ? " · " + esc(p.description) : ""}</span></span><span class="small muted">Stripe</span></div>`).join("")}</div>` : `<p class="small muted">No payments yet.</p>`}</div>
+        ${c.portalOnly ? "" : `<div class="card"><div class="sec-h"><h2>Details</h2><span class="small muted" id="saved"></span></div>
+          ${field("youtube", "YouTube channel", "https://youtube.com/@…")}${field("instagram", "Instagram", "https://instagram.com/…")}${field("website", "Website", "https://…")}
+          ${field("show", "Show / brand", "")}${field("niche", "Niche", "e.g. fitness coach")}
+          <label for="f-notes">Notes</label><textarea id="f-notes" data-k="notes" placeholder="Style, preferences, what they like…">${esc(c.notes || "")}</textarea></div>`}
+        ${c.user_id ? `<div class="card"><div class="sec-h"><b style="color:var(--ink);font-size:14px">Add a portal pack by hand</b></div>
+          <p class="small muted" style="margin:0 0 10px">For a payment made outside the portal, so they can upload and order.</p>
+          <div class="row">${CFG.packs.map(p => `<button class="btn btn-line btn-sm" data-add="${p.id}">+ ${p.videos} (${money(p.price)})</button>`).join("")}</div></div>` : ""}
       </div>
     </div>`;
+  view.querySelectorAll("[data-k]").forEach(inp => inp.onchange = async () => {
+    try { await api.updateClient(c.id, { [inp.dataset.k]: inp.value.trim() || null }); $("#saved").textContent = "Saved ✓"; } catch (err) { toast(err.message); }
+  });
+  view.querySelectorAll("[data-play]").forEach(b => b.onclick = () => {
+    const { close } = overlay(`<div class="pm-in single"><div class="screen pm-screen" style="max-width:340px;margin:0 auto"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(b.dataset.play)}/preview" allow="autoplay" style="width:100%;aspect-ratio:9/16;border:0;border-radius:25px;background:#000"></iframe></div>
+      <button class="linkish pm-skip" data-close style="margin:18px auto 0">Close</button></div>`);
+  });
   view.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => {
     const pack = CFG.packs.find(p => p.id === b.dataset.add);
     b.setAttribute("aria-busy", "true");
-    try { await api.addPurchase(c.id, pack); toast(`${pack.videos} credit${pack.videos > 1 ? "s" : ""} added for ${c.name || c.email}`); route(); }
+    try { await api.addPurchase(c.user_id, pack); toast(`${pack.videos} credit${pack.videos > 1 ? "s" : ""} added for ${c.name}`); route(); }
     catch (err) { toast(err.message); b.removeAttribute("aria-busy"); }
   });
 }
