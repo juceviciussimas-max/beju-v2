@@ -67,7 +67,7 @@ create or replace function public.check_video_insert() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare p public.purchases; used int;
 begin
-  if public.is_admin() then return new; end if;
+  if public.is_admin() or auth.uid() is null then return new; end if;   -- admins and the service role (webhook, scripts)
   if new.user_id is distinct from auth.uid() then raise exception 'Not allowed'; end if;
   new.status := 'received'; new.result_url := null; new.delivered_at := null;
   select * into p from public.purchases where id = new.purchase_id and user_id = new.user_id and expires_at > now();

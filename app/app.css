@@ -324,3 +324,15 @@ a.nextcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .ghost span{writing-mode:vertical-rl;transform:rotate(180deg)}
 @media (prefers-reduced-motion:no-preference){.ghost{animation:rise .8s var(--ease) both,sheen 3s linear infinite}.ghost:nth-child(2){animation-delay:.12s,0s}.ghost:nth-child(3){animation-delay:.24s,0s}}
 @media (max-width:760px){.pm-in{grid-template-columns:1fr;gap:28px}.pm-screen{max-width:280px;margin:0 auto}.premiere{align-items:flex-start}}
+
+/* ---------- founders (CRM) ---------- */
+.search{max-width:280px;height:42px;border-radius:999px;padding:0 16px}
+.tlist{display:grid;gap:6px}
+.trow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line-2);border-radius:13px;text-decoration:none;color:inherit;background:#fff;transition:background .2s,transform .3s var(--spring)}
+a.trow:hover{background:var(--bg);transform:translateX(2px)}
+.trow>span:first-child{display:flex;flex-direction:column;min-width:0}
+.trow b{color:var(--ink);font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow{cursor:pointer}
+.mini{height:4px;border-radius:999px;background:var(--line-2);margin-top:6px;width:90px;overflow:hidden}
+.mini i{display:block;height:100%;background:var(--gold-metal)}
+.head p .chip{vertical-align:middle;margin-left:4px}
