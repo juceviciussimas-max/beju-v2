@@ -12,7 +12,7 @@ const STATUS = { received: "Received", editing: "In edit", ready: "Ready for you
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600); }
 
 /* ---------------- Demo backend (localStorage) ---------------- */
-const SAMPLE_CLIPS = ["../work/01.mp4", "../rail-01.mp4", "../rail-05.mp4", "../rail-06.mp4", "../rail-08.mp4"];
+const SAMPLE_CLIPS = ["../work/01.mp4", "../work/02.mp4", "../rail-01.mp4", "../rail-08.mp4", "../hero/hero.mp4"];
 const Demo = {
   load() { try { return JSON.parse(localStorage.getItem("beju_demo")) || { users: [], purchases: [], videos: [], notes: [], session: null }; } catch { return { users: [], purchases: [], videos: [], notes: [], session: null }; } },
   save(d) { localStorage.setItem("beju_demo", JSON.stringify(d)); },
@@ -105,46 +105,74 @@ async function wallet(uid) {
 }
 
 /* ---------------- views ---------------- */
-let ME = null;
-function setNav() {
-  $("#nav").hidden = !ME; $("#nav-admin").hidden = !(ME && ME.is_admin);
-  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.getAttribute("href") === (location.hash || "#/")));
+let ME = null, W = null;
+const icon = (id, cls = "") => `<svg class="${cls}"><use href="#i-${id}"/></svg>`;
+const firstName = () => (ME.name || ME.email || "").split(/[ @]/)[0];
+const greet = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; };
+const today = () => new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+const chip = s => `<span class="chip st-${s}">${STATUS[s]}</span>`;
+
+function chrome(on) {
+  $("#shell").classList.toggle("app", on); document.body.classList.toggle("app", on);
+  $("#side").hidden = !on; $("#mbar").hidden = !on; $("#tabbar").hidden = !on;
+  if (!on) return;
+  $("#nav-admin").hidden = $("#nav-admin-h").hidden = !ME.is_admin;
+  const h = location.hash || "#/";
+  document.querySelectorAll(".nav a, .tabbar a").forEach(a => a.classList.toggle("on", a.getAttribute("href") === h));
+  const used = W ? W.total - W.left : 0;
+  $("#me").innerHTML = `
+    <div class="who"><div class="avatar">${esc(firstName().slice(0, 1).toUpperCase())}</div>
+      <div><b style="color:var(--ink);font-weight:600">${esc(firstName())}</b><br>${W && W.total ? `<span class="badge">${W.total}-Short pack</span>` : `<span class="small muted">No pack yet</span>`}</div></div>
+    ${W && W.total ? `<div class="bar-l"><span>Credits used</span><span class="mono">${used}/${W.total}</span></div><div class="progress"><i style="width:${Math.round(used / W.total * 100)}%"></i></div>` : ""}
+    <a href="#/" class="out" id="logout">${icon("out")}Sign out</a>`;
+  $("#logout").onclick = async e => { e.preventDefault(); await api.signOut(); ME = W = null; location.hash = "#/login"; };
 }
 
 function authView(mode = "signup") {
+  chrome(false);
+  view.style.maxWidth = "none"; view.style.padding = "0";
   view.innerHTML = `
-  <div class="auth card">
-    <h1>${mode === "signup" ? "Create your account" : "Welcome back"}</h1>
-    <p class="muted small">Your Shorts, your packs and your changes, all in one place.</p>
-    <div class="tabs"><button data-m="signup" class="${mode === "signup" ? "on" : ""}">Sign up</button><button data-m="login" class="${mode === "login" ? "on" : ""}">Log in</button></div>
-    <form id="af">
-      ${mode === "signup" ? `<label for="n">Your name</label><input id="n" required autocomplete="name">` : ""}
-      <label for="e">Email</label><input id="e" type="email" required autocomplete="email">
-      <label for="p">Password</label><input id="p" type="password" required minlength="8" autocomplete="${mode === "signup" ? "new-password" : "current-password"}">
-      <p style="margin-top:var(--s-5)"><button class="btn-gold" style="width:100%">${mode === "signup" ? "Create account" : "Log in"}</button></p>
-      <p class="small muted" id="aerr" role="alert"></p>
-    </form>
+  <div class="auth">
+    <div class="form"><div>
+      <a class="logo" href="#/" style="padding:0"><img src="../beju-mark-sm.png" alt="" width="34" height="34"><span><b>BEJÚ</b><small>Client studio</small></span></a>
+      <h1>${mode === "signup" ? "Your Shorts, in one place." : "Welcome back."}</h1>
+      <p class="muted">${mode === "signup" ? "Order, watch, approve and ask for changes, without a single email thread." : "Log in to see your Shorts and packs."}</p>
+      <div class="seg"><button data-m="signup" class="${mode === "signup" ? "on" : ""}">Create account</button><button data-m="login" class="${mode === "login" ? "on" : ""}">Log in</button></div>
+      <form id="af">
+        ${mode === "signup" ? `<label for="n">Your name</label><input id="n" required autocomplete="name" placeholder="Ana">` : ""}
+        <label for="e">Email</label><input id="e" type="email" required autocomplete="email" placeholder="you@yourshow.com">
+        <label for="p">Password</label><input id="p" type="password" required minlength="8" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" placeholder="At least 8 characters">
+        <p style="margin:22px 0 8px"><button class="btn btn-dark btn-block">${mode === "signup" ? "Create my studio" : "Log in"}</button></p>
+        <p class="err" id="aerr" role="alert"></p>
+      </form>
+    </div></div>
+    <div class="art" aria-hidden="true">
+      <div class="phone"><video src="../hero/hero.mp4" autoplay muted loop playsinline></video></div>
+      <div class="float f1">${icon("check")} Short ready in <b>24h</b></div>
+      <div class="float f2">${icon("bolt")} <b>2×</b> your usual views</div>
+    </div>
   </div>`;
-  view.querySelectorAll(".tabs button").forEach(b => b.onclick = () => authView(b.dataset.m));
+  view.querySelectorAll(".seg button").forEach(b => b.onclick = () => { location.hash = b.dataset.m === "login" ? "#/login" : "#/signup"; });
   $("#af").onsubmit = async e => {
     e.preventDefault(); const btn = e.submitter; btn.setAttribute("aria-busy", "true");
     try {
       ME = mode === "signup" ? await api.signUp($("#e").value, $("#p").value, $("#n").value) : await api.signIn($("#e").value, $("#p").value);
       if (!ME) { $("#aerr").textContent = "Check your inbox to confirm your email, then log in."; return; }
-      location.hash = "#/"; route();
+      location.hash = "#/";
     } catch (err) { $("#aerr").textContent = err.message; } finally { btn.removeAttribute("aria-busy"); }
   };
 }
 
-function packCards(w) {
+function packCards() {
   return CFG.packs.map(p => `
     <div class="card pack ${p.best ? "best" : ""}">${p.best ? `<span class="tag">Best value</span>` : ""}
-      <h3>${esc(p.name)}</h3><div class="price">$${p.price}</div>
-      <p class="muted small">${p.videos} Short${p.videos > 1 ? "s" : ""} · $${(p.price / p.videos).toFixed(0)} each · back within 24 h</p>
-      <button class="btn-${p.best ? "gold" : "glass"}" data-buy="${p.id}">Buy ${p.videos > 1 ? p.videos + " Shorts" : "1 Short"}</button>
+      <h3>${esc(p.name)}</h3>
+      <div class="price">$${p.price}</div><div class="per">$${(p.price / p.videos).toFixed(0)} per Short</div>
+      <ul><li>${icon("check")}${p.videos} Short${p.videos > 1 ? "s" : ""} from your videos</li><li>${icon("check")}Back within 24 h</li>
+        <li>${icon("check")}Changes within 48 h</li><li>${icon("check")}2× your usual views or money back</li></ul>
+      <button class="btn ${p.best ? "btn-dark" : "btn-line"} btn-block" data-buy="${p.id}">Get ${p.videos > 1 ? p.videos + " Shorts" : "1 Short"}</button>
     </div>`).join("");
 }
-
 function bindBuy(root, after) {
   root.querySelectorAll("[data-buy]").forEach(b => b.onclick = async () => {
     const pack = CFG.packs.find(p => p.id === b.dataset.buy);
@@ -155,88 +183,117 @@ function bindBuy(root, after) {
 
 function videoCard(v, url) {
   return `<a class="vcard" href="#/v/${v.id}">
-    <div class="thumb">${url ? `<video src="${esc(url)}#t=0.5" muted playsinline preload="metadata"></video>` : `<div class="ph">${v.status === "received" ? "We have your footage" : "Being edited"}</div>`}</div>
-    <div class="spread" style="margin-top:var(--s-2)"><b style="color:var(--ink)">${esc(v.title)}</b><span class="pill st-${v.status}">${STATUS[v.status]}</span></div></a>`;
+    <div class="thumb">${url ? `<video src="${esc(url)}#t=0.5" muted playsinline preload="metadata"></video><span class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span>`
+      : `<div class="ph">${icon(v.status === "received" ? "up" : "clock")}${v.status === "received" ? "Footage received" : "Being edited"}</div>`}</div>
+    <div class="vmeta"><b>${esc(v.title)}</b><div class="row">${chip(v.status)}</div></div></a>`;
+}
+
+function head(title, sub, right = "") {
+  return `<div class="head"><div><h1>${title}</h1><p>${sub}</p></div>${right}</div>`;
 }
 
 async function dashboard() {
-  const w = await wallet(ME.id);
-  const urls = await Promise.all(w.videos.map(v => api.playable(v)));
-  const pct = w.total ? Math.round((w.total - w.left) / w.total * 100) : 0;
-  view.innerHTML = `
-  <div class="stack">
-    <div class="spread"><div><p class="label">Your studio</p><h1>Hi ${esc(ME.name || "there")}</h1></div>
-      ${w.left ? `<a class="btn-gold" href="#/new">Start a new Short</a>` : ""}</div>
-    <div class="grid g2">
-      <div class="card"><p class="label">Credits</p>
-        <div class="credits"><b>${w.left}</b><span>Short${w.left === 1 ? "" : "s"} left</span></div>
-        ${w.total ? `<div class="meter"><i style="width:${pct}%"></i></div><p class="small muted">${w.total - w.left} of ${w.total} used${w.expires ? ` · use them within <b style="color:var(--ink)">${days(w.expires - Date.now())} days</b>` : ""}</p>`
-                  : `<p class="small muted">No pack yet. Pick one below and your credits show up here right away.</p>`}
-      </div>
-      <div class="card"><p class="label">How it works</p>
-        <p class="small">1. Buy a pack. 2. Upload your video and tell us what you want. 3. Your Short shows up here within 24 h. Watch it, approve it, or ask for changes at the exact second.</p></div>
+  const urls = await Promise.all(W.videos.map(v => api.playable(v)));
+  const c = s => W.videos.filter(v => v.status === s).length;
+  const ready = W.videos.find(v => v.status === "ready");
+  const exp = W.expires ? days(W.expires - Date.now()) : null;
+  const step = !W.total ? 0 : !W.videos.length ? 1 : ready ? 3 : W.videos.some(v => v.status === "approved") ? 4 : 2;
+  const steps = [["Pick a pack", "Your credits appear right away."], ["Upload your video", "Tell us the moment, the hook, the vibe."],
+                 ["We edit", "Your Short is back within 24 h."], ["Watch it here", "Approve it, or ask for changes at the exact second."],
+                 ["Post and repeat", "Keep the series going."]];
+  view.innerHTML = head(`Dashboard`, `${greet()}, ${esc(firstName())} · ${today()}`,
+      ready ? `<a class="notice" href="#/v/${ready.id}"><span class="ic">${icon("bell")}</span><span><b>Your Short is ready</b><span>${esc(ready.title)} · watch it now</span></span></a>` : "") + `
+    <div class="grid kpis">
+      <a class="card kpi" href="${W.left ? "#/new" : "#/packs"}"><span class="k-l">Shorts left</span><span class="k-ic t-gold">${icon("film")}</span>
+        <span class="k-v">${W.left}</span><span class="k-s">${W.total ? `${W.total - W.left} of ${W.total} used →` : "Get a pack →"}</span></a>
+      <a class="card kpi" href="#/shorts"><span class="k-l">In edit</span><span class="k-ic t-violet">${icon("clock")}</span>
+        <span class="k-v">${c("received") + c("editing") + c("revision")}</span><span class="k-s">Back within 24 h</span></a>
+      <a class="card kpi" href="#/shorts"><span class="k-l">Ready for you</span><span class="k-ic t-green">${icon("check")}</span>
+        <span class="k-v">${c("ready")}</span><span class="k-s">${c("approved")} approved</span></a>
+      <a class="card kpi" href="#/packs"><span class="k-l">Pack valid for</span><span class="k-ic t-amber">${icon("bolt")}</span>
+        <span class="k-v">${exp === null ? "–" : exp + "d"}</span><span class="k-s">${exp === null ? "No active pack" : "Use your credits in time"}</span></a>
     </div>
-    <section><h2>Your Shorts</h2>
-      ${w.videos.length ? `<div class="vlist">${w.videos.map((v, i) => videoCard(v, urls[i])).join("")}</div>`
-        : `<div class="card empty"><h3>Nothing here yet</h3><p class="muted">Your first Short will play right here.</p>${w.left ? `<a class="btn-gold" href="#/new">Upload your first video</a>` : ""}</div>`}
-    </section>
-    <section id="packs"><h2>${w.left ? "Need more?" : "Pick your pack"}</h2><div class="grid g3">${packCards(w)}</div>
-      <p class="small muted">Twice your usual views or your money back on Short packs. Packs are valid for ${CFG.creditDays} days.</p></section>
-  </div>`;
-  bindBuy(view, dashboard);
+    <div class="grid two">
+      <div class="card"><div class="sec-h"><h2>Latest Shorts</h2><a href="#/shorts">See all →</a></div>
+        ${W.videos.length ? `<div class="vlist">${W.videos.slice(0, 4).map((v, i) => videoCard(v, urls[i])).join("")}</div>`
+          : `<div class="empty"><div class="ic t-gold">${icon("film")}</div><h3>Your first Short will play right here</h3><p>${W.left ? "Upload a video and we take it from there." : "Pick a pack to get started."}</p>
+             <a class="btn btn-dark" href="${W.left ? "#/new" : "#/packs"}">${W.left ? "Upload your first video" : "See packs"}</a></div>`}
+      </div>
+      <div class="card"><div class="sec-h"><h2>How it works</h2></div>
+        <ol class="steps">${steps.map(([b, s], i) => `<li class="${i === step ? "now" : ""}"><span class="n">Step ${i + 1}</span><span><b>${b}</b><span>${s}</span></span></li>`).join("")}</ol>
+      </div>
+    </div>`;
+}
+
+async function shorts() {
+  const urls = await Promise.all(W.videos.map(v => api.playable(v)));
+  view.innerHTML = head("My Shorts", `${W.videos.length} Short${W.videos.length === 1 ? "" : "s"} so far`, W.left ? `<a class="btn btn-dark" href="#/new">${icon("plus")}New Short</a>` : "") +
+    (W.videos.length ? `<div class="vlist">${W.videos.map((v, i) => videoCard(v, urls[i])).join("")}</div>`
+      : `<div class="card empty"><div class="ic t-gold">${icon("film")}</div><h3>No Shorts yet</h3><p>They'll all live here, ready to watch.</p><a class="btn btn-dark" href="${W.left ? "#/new" : "#/packs"}">${W.left ? "Upload a video" : "See packs"}</a></div>`);
+}
+
+function packs() {
+  view.innerHTML = head("Packs", W.left ? `You have <b class="mono" style="color:var(--ink)">${W.left}</b> Short${W.left === 1 ? "" : "s"} left. Top up any time.` : `Pick a pack. Your credits show up straight away.`) +
+    `<div class="grid packs">${packCards()}</div><p class="small muted" style="margin-top:16px">Packs are valid for ${CFG.creditDays} days from purchase. Secure payment by Stripe.</p>`;
+  bindBuy(view, route);
 }
 
 async function newVideo() {
-  const w = await wallet(ME.id);
-  if (!w.left) { view.innerHTML = `<div class="card empty"><h2>You're out of credits</h2><p class="muted">Pick a pack to start your next Short.</p><div class="grid g3" style="text-align:left">${packCards(w)}</div></div>`; bindBuy(view, newVideo); return; }
-  view.innerHTML = `
-  <div class="card" style="max-width:40rem;margin:0 auto">
-    <p class="label">New Short · ${w.left} credit${w.left === 1 ? "" : "s"} left</p><h1>Upload your video</h1>
+  if (!W.left) { view.innerHTML = head("New Short", "You're out of credits. Pick a pack to start your next Short.") + `<div class="grid packs">${packCards()}</div>`; bindBuy(view, route); return; }
+  view.innerHTML = head("New Short", `${W.left} credit${W.left === 1 ? "" : "s"} left · back within 24 h`) + `
+  <div class="card" style="max-width:720px">
     <form id="nf">
-      <label for="t">What should we call it?</label><input id="t" required placeholder="e.g. Episode 42, the part about sleep">
-      <label for="f">Your footage</label><input id="f" type="file" accept="video/*">
-      <label for="no">What do you want? (the moment, the hook, the vibe)</label><textarea id="no" placeholder="Start at 12:30 where I talk about…"></textarea>
-      <p style="margin-top:var(--s-5)"><button class="btn-gold">Send to our editors</button></p>
+      <label for="t" style="margin-top:0">Name it</label><input id="t" required placeholder="e.g. Episode 42, the part about sleep">
+      <label>Your footage</label>
+      <label class="drop" id="drop" for="f">${icon("up")}<b id="fname">Drop your video here or click to choose</b><span class="small muted">MP4 or MOV · up to 50 MB for now</span><input id="f" type="file" accept="video/*"></label>
+      <label for="no">What do you want?</label><textarea id="no" placeholder="Start at 12:30 where I talk about… Make the hook the line about…"></textarea>
+      <p style="margin:22px 0 0" class="row"><button class="btn btn-dark">Send to our editors</button><span class="small muted">Uses 1 credit</span></p>
     </form></div>`;
+  const f = $("#f"), drop = $("#drop");
+  f.onchange = () => $("#fname").textContent = f.files[0] ? f.files[0].name : "Drop your video here or click to choose";
+  ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove("over")));
+  drop.addEventListener("drop", e => { e.preventDefault(); f.files = e.dataTransfer.files; f.onchange(); });
   $("#nf").onsubmit = async e => {
     e.preventDefault(); const btn = e.submitter; btn.setAttribute("aria-busy", "true");
-    try { const v = await api.createVideo(ME.id, w.next.id, $("#t").value, $("#no").value, $("#f").files[0]); toast("Got it. Your editors are on it."); location.hash = `#/v/${v.id}`; }
+    try { const v = await api.createVideo(ME.id, W.next.id, $("#t").value, $("#no").value, f.files[0]); toast("Got it. Your editors are on it."); location.hash = `#/v/${v.id}`; }
     catch (err) { toast(err.message); btn.removeAttribute("aria-busy"); }
   };
 }
 
 async function videoPage(id) {
   const v = await api.video(id);
-  if (!v || (v.user_id !== ME.id && !ME.is_admin)) { view.innerHTML = `<div class="card empty"><h2>Not found</h2></div>`; return; }
-  const [url, notes, w] = await Promise.all([api.playable(v), api.notes(id), wallet(v.user_id)]);
+  if (!v || (v.user_id !== ME.id && !ME.is_admin)) { view.innerHTML = `<div class="card empty"><h3>Not found</h3></div>`; return; }
+  const [url, notes] = await Promise.all([api.playable(v), api.notes(id)]);
   const left = v.delivered_at ? CFG.revisionHours * 36e5 - (Date.now() - v.delivered_at) : 0;
   const canChange = v.status === "ready" && left > 0;
   view.innerHTML = `
-  <p><a href="#/" class="small">← All Shorts</a></p>
+  <a href="#/shorts" class="back">← My Shorts</a>
   <div class="player">
-    <div>${url ? `<video id="pv" src="${esc(url)}" controls playsinline></video>` : `<div class="thumb"><div class="ph">${v.status === "received" ? "We have your footage. Your editor starts soon." : "Your editor is working on it. It shows up here when it's ready."}</div></div>`}</div>
+    <div class="screen">${url ? `<video id="pv" src="${esc(url)}" controls playsinline></video>`
+      : `<div class="thumb"><div class="ph">${icon(v.status === "received" ? "up" : "clock")}${v.status === "received" ? "We have your footage.<br>Your editor starts soon." : "Your editor is on it.<br>It plays right here when it's ready."}</div></div>`}</div>
     <div class="stack">
-      <div><span class="pill st-${v.status}">${STATUS[v.status]}</span><h1 style="margin-top:var(--s-3)">${esc(v.title)}</h1>
-        ${v.notes ? `<p class="small muted">Your brief: ${esc(v.notes)}</p>` : ""}</div>
+      <div>${chip(v.status)}<h1 style="margin-top:12px">${esc(v.title)}</h1>${v.notes ? `<p class="muted" style="margin:8px 0 0">Your brief: ${esc(v.notes)}</p>` : ""}</div>
       ${v.status === "ready" ? `
-        <div class="card"><h3>Happy with it?</h3>
-          <div class="row"><button class="btn-gold" id="approve">Approve</button>${url ? `<a class="btn-glass" href="${esc(url)}" download>Download</a>` : ""}</div>
-          ${canChange ? `<p class="small muted" style="margin-top:var(--s-4)">Want a change? Pause at the exact second, write it below. You can ask for changes for another ${Math.ceil(left / 36e5)} h.</p>
-          <form id="cf"><div class="row"><button type="button" class="ts" id="at">at 0:00</button></div>
-          <textarea id="ct" required placeholder="e.g. Cut this pause, make the caption bigger"></textarea>
-          <p><button class="btn-glass">Add change</button> <button type="button" class="btn-glass" id="sendrev">Send changes to editor</button></p></form>` : ""}
+        <div class="card"><h2>Happy with it?</h2><p class="small muted" style="margin:4px 0 14px">Approve it, or pause at the exact second and tell us what to change.</p>
+          <div class="row"><button class="btn btn-dark" id="approve">${icon("check")}Approve</button>${url ? `<a class="btn btn-line" href="${esc(url)}" download>Download</a>` : ""}</div>
+          ${canChange ? `<form id="cf" style="margin-top:18px"><div class="sec-h" style="margin:0 0 8px"><span class="row"><b style="color:var(--ink);font-size:14px">Change</b><button type="button" class="tsbtn" id="at">at 0:00</button></span>
+            <span class="window">${icon("clock")}${Math.ceil(left / 36e5)} h left for changes</span></div>
+            <textarea id="ct" required placeholder="e.g. Cut this pause, make the caption bigger"></textarea>
+            <p class="row" style="margin:12px 0 0"><button class="btn btn-line btn-sm">Add change</button><button type="button" class="btn btn-gold btn-sm" id="sendrev">Send changes to editor</button></p></form>` : ""}
         </div>` : ""}
-      ${v.status === "approved" ? `<div class="card upsell"><h3>Make it a series</h3><p class="small">${w.left ? `You still have ${w.left} credit${w.left === 1 ? "" : "s"}. Keep the momentum going.` : "Your next 5 Shorts, back within 24 h each."}</p>
-        ${w.left ? `<a class="btn-gold" href="#/new">Start the next one</a>` : `<button class="btn-gold" data-buy="short_5">5 more Shorts · $75</button>`}</div>` : ""}
-      <div><h3>Changes</h3>${notes.length ? `<ul class="notes">${notes.map(n => `<li><button class="ts" data-t="${n.at}">${fmtTime(n.at)}</button> ${esc(n.text)}</li>`).join("")}</ul>` : `<p class="small muted">No changes requested.</p>`}</div>
+      ${v.status === "approved" ? `<div class="card upsell"><h2>Make it a series</h2><p class="small" style="margin:6px 0 16px">${W.left && v.user_id === ME.id ? `You have ${W.left} credit${W.left === 1 ? "" : "s"} left. Keep the momentum going.` : "Your next 5 Shorts, each back within 24 h."}</p>
+        ${W.left && v.user_id === ME.id ? `<a class="btn btn-gold" href="#/new">Start the next one</a>` : `<button class="btn btn-gold" data-buy="short_5">5 more Shorts · $75</button>`}</div>` : ""}
+      <div class="card"><div class="sec-h" style="margin-bottom:10px"><h2>Changes</h2></div>
+        ${notes.length ? `<ul class="notes">${notes.map(n => `<li><button class="tsbtn" data-t="${n.at}">${fmtTime(n.at)}</button><span>${esc(n.text)}</span></li>`).join("")}</ul>` : `<p class="small muted" style="margin:0">No changes requested.</p>`}</div>
     </div>
   </div>`;
   const pv = $("#pv");
   view.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { if (pv) { pv.currentTime = +b.dataset.t; pv.play(); } });
   if (pv && $("#at")) pv.ontimeupdate = () => $("#at").textContent = `at ${fmtTime(pv.currentTime)}`;
   if ($("#cf")) $("#cf").onsubmit = async e => { e.preventDefault(); await api.addNote(id, ME.id, pv ? pv.currentTime : 0, $("#ct").value); videoPage(id); };
-  if ($("#sendrev")) $("#sendrev").onclick = async () => { if (!notes.length) return toast("Add at least one change first."); await api.update(id, { status: "revision" }); toast("Sent. Your editor is on it."); videoPage(id); };
-  if ($("#approve")) $("#approve").onclick = async () => { await api.update(id, { status: "approved" }); toast("Approved. Nice one."); videoPage(id); };
+  if ($("#sendrev")) $("#sendrev").onclick = async () => { if (!notes.length) return toast("Add at least one change first."); await api.update(id, { status: "revision" }); toast("Sent. Your editor is on it."); route(); };
+  if ($("#approve")) $("#approve").onclick = async () => { await api.update(id, { status: "approved" }); toast("Approved. Nice one."); route(); };
   bindBuy(view, () => videoPage(id));
 }
 
@@ -244,31 +301,44 @@ async function admin() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   const [vs, us] = await Promise.all([api.videos(null), api.users()]);
   const who = id => (us.find(u => u.id === id) || {}).email || id;
-  view.innerHTML = `
-  <h1>Orders</h1><p class="muted small">Every client's Shorts. Move them along; deliver a finished file and it plays in the client's portal.</p>
-  <div class="tablebox"><table><thead><tr><th>Client</th><th>Short</th><th>Footage</th><th>Status</th><th></th></tr></thead><tbody>
-  ${vs.map(v => `<tr><td>${esc(who(v.user_id))}</td><td><a href="#/v/${v.id}">${esc(v.title)}</a></td><td class="small">${esc(v.footage || "—")}</td>
-    <td><span class="pill st-${v.status}">${STATUS[v.status]}</span></td>
-    <td class="row">${v.status === "received" || v.status === "revision" ? `<button class="btn-glass btn-sm" data-edit="${v.id}">Start edit</button>` : ""}
-      ${v.status !== "approved" ? (LIVE ? `<label class="btn-glass btn-sm">Deliver file<input type="file" accept="video/mp4" data-del="${v.id}" hidden></label>` : `<button class="btn-gold btn-sm" data-demo="${v.id}">Deliver (demo clip)</button>`) : ""}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">No orders yet.</td></tr>`}
+  const open = vs.filter(v => v.status !== "approved").length;
+  view.innerHTML = head("Orders", `${open} open · ${vs.length} total`) + `
+  <div class="card tablebox"><table><thead><tr><th>Client</th><th>Short</th><th>Footage</th><th>Status</th><th></th></tr></thead><tbody>
+  ${vs.map(v => `<tr><td>${esc(who(v.user_id))}</td><td><a href="#/v/${v.id}" style="color:var(--ink);font-weight:600">${esc(v.title)}</a></td>
+    <td class="small muted">${esc((v.footage || "—").split("/").pop())}</td><td>${chip(v.status)}</td>
+    <td><div class="row" style="justify-content:flex-end">${v.status === "received" || v.status === "revision" ? `<button class="btn btn-line btn-sm" data-edit="${v.id}">Start edit</button>` : ""}
+      ${v.status !== "approved" ? (LIVE ? `<label class="btn btn-dark btn-sm filelabel">Deliver file<input type="file" accept="video/mp4" data-del="${v.id}" hidden></label>` : `<button class="btn btn-dark btn-sm" data-demo="${v.id}">Deliver (demo clip)</button>`) : ""}</div></td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">No orders yet.</td></tr>`}
   </tbody></table></div>`;
   view.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => { await api.update(b.dataset.edit, { status: "editing" }); admin(); });
   view.querySelectorAll("[data-demo]").forEach(b => b.onclick = async () => { await api.deliver(b.dataset.demo); toast("Delivered"); admin(); });
   view.querySelectorAll("[data-del]").forEach(i => i.onchange = async () => { toast("Uploading…"); await api.deliver(i.dataset.del, i.files[0]); toast("Delivered"); admin(); });
 }
 
+function account() {
+  view.innerHTML = head("Account", esc(ME.email)) + `<div class="card" style="max-width:520px"><p style="margin:0 0 14px">Signed in as <b style="color:var(--ink)">${esc(ME.name || ME.email)}</b>.</p>
+    <button class="btn btn-line" id="lo2">${icon("out")}Sign out</button></div>`;
+  $("#lo2").onclick = async () => { await api.signOut(); ME = W = null; location.hash = "#/login"; };
+}
+
 async function route() {
-  ME = ME || await api.user();
-  setNav();
+  try { ME = ME || await api.user(); } catch { ME = null; }
   const h = location.hash || "#/";
   if (!ME) return authView(h === "#/login" ? "login" : "signup");
+  if (h === "#/login" || h === "#/signup") { location.hash = "#/"; return; }
+  view.style.maxWidth = ""; view.style.padding = "";
+  W = await wallet(ME.id);
+  chrome(true);
+  window.scrollTo(0, 0);
   if (h === "#/new") return newVideo();
+  if (h === "#/shorts") return shorts();
+  if (h === "#/packs") return packs();
   if (h === "#/admin") return admin();
+  if (h === "#/account") return account();
   if (h.startsWith("#/v/")) return videoPage(h.slice(4));
-  if (h === "#/portfolio") { view.innerHTML = `<div class="card empty"><h2>Portfolio pages are coming</h2><p class="muted">Soon you'll get your own page of the Shorts you choose to show.</p></div>`; return; }
+  if (h === "#/portfolio") { view.innerHTML = head("Portfolio", "Your own public page of the Shorts you choose to show.") + `<div class="card empty"><div class="ic t-gold">${icon("star")}</div><h3>Coming soon</h3><p>One link to show sponsors and guests your best Shorts.</p></div>`; return; }
   return dashboard();
 }
-$("#logout").onclick = async () => { await api.signOut(); ME = null; location.hash = "#/login"; route(); };
 window.addEventListener("hashchange", route);
 route();
 })();
