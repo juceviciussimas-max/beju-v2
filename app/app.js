@@ -678,7 +678,7 @@ async function outreach() {
   const perDay = c => Math.min(c.daily_max_leads || 0, c.uncontacted || 0);
   const sum = (xs, f) => xs.reduce((s, x) => s + (Number(f(x)) || 0), 0);
   const cap = sum(camps, c => c.daily_max_leads), queue = sum(camps, c => c.uncontacted), going = sum(camps, perDay);
-  const sentT = sum(camps, c => dayOf(c.campaign_id, d0).sent), newT = sum(camps, c => dayOf(c.campaign_id, d0).new_leads), repT = sum(camps, c => dayOf(c.campaign_id, d0).replies);
+  const sentT = inbox.some(i => i.sent_today != null) ? sum(inbox, i => i.sent_today) : sum(camps, c => dayOf(c.campaign_id, d0).sent), newT = sum(camps, c => dayOf(c.campaign_id, d0).new_leads), repT = sum(camps, c => dayOf(c.campaign_id, d0).replies);
   view.innerHTML = head("Outreach", `Live from Instantly · ${synced(st, "instantly")}`) + `
     <div class="grid kpis">
       <div class="card kpi hero"><span class="k-l">New leads per day</span><span class="k-ic">${icon("bolt")}</span><span class="k-v" data-count="${going}">0</span><span class="k-s">daily cap ${cap} · ${queue < cap ? "queue is shorter than the cap" : "queue covers the cap"}</span></div>
@@ -703,7 +703,7 @@ async function outreach() {
         const w = iday.filter(x => x.email === i.email && wk.includes(x.day)), t = iday.find(x => x.email === i.email && x.day === d0) || {};
         const s7 = sum(w, x => x.sent), b7 = sum(w, x => x.bounced);
         return `<tr><td><b style="color:var(--ink)">${esc(i.email)}</b><br><span class="small muted">${i.campaigns.length ? esc(i.campaigns.map(n => n.split(" —")[0]).join(", ")) : "warming, not in a campaign"}</span></td>
-          <td class="mono">${t.sent || 0}</td><td class="mono">${s7}</td><td class="mono">${sum(w, x => x.replies)}</td>
+          <td class="mono">${i.sent_today ?? t.sent ?? 0}${i.daily_limit ? `<span class="small muted"> / ${i.daily_limit}</span>` : ""}</td><td class="mono">${s7}</td><td class="mono">${sum(w, x => x.replies)}</td>
           <td class="mono ${s7 && b7 / s7 > .015 ? "bad" : ""}">${b7}${s7 ? ` <span class="small muted">${pct(b7, s7)}</span>` : ""}</td>
           <td class="mono">${i.warmup_score ?? "—"}</td><td class="mono">${i.daily_limit ?? "—"}</td></tr>`; }).join("")}
       </tbody></table></div>`;

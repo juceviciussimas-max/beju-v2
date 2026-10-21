@@ -3,6 +3,9 @@
 
 alter table public.pipeline add column if not exists builder text;
 
+-- Sent today per inbox, counted from Instantly's sent emails (its per-account analytics lags far behind).
+alter table public.inbox_live add column if not exists sent_today int;
+
 -- Every lead who wrote to us in the last 7 days: "are all replies answered?"
 create table if not exists public.reply_queue (
   lead_email text primary key,
