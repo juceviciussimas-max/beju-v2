@@ -364,3 +364,9 @@ h1,h2,h3{letter-spacing:-.022em}
 .nform textarea{min-height:64px} .nform .row{gap:8px} .nform input[type=date]{width:auto}
 .note{align-items:flex-start} .nchk{display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:0}
 .nchk input{margin-top:3px;accent-color:var(--olive)} .note.done b{text-decoration:line-through;color:var(--muted)}
+
+/* founders, part 3 (10-21) */
+.kpi.alert{box-shadow:inset 0 0 0 2px var(--amber)}
+.feed .fi{width:16px;height:16px;margin-top:2px;color:var(--gold-deep)}
+.msg.in{border-left:3px solid var(--blue)} .msg.out{border-left:3px solid var(--line)} .msg>span{display:flex;flex-direction:column;gap:3px}
+.msg b,.msg .small{overflow-wrap:anywhere} .msg{min-width:0} .msg>span:first-child{min-width:0}

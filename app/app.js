@@ -463,7 +463,8 @@ async function team() {
   const who = uid => clients.find(c => c.user_id === uid) || {};
   const row = (v, right) => `<a class="trow" href="#/v/${v.id}"><span><b>${esc(v.title)}</b><span class="small muted">${esc(who(v.user_id).name || "")}</span></span><span class="row">${chip(v.status)}<span class="small muted">${right}</span></span></a>`;
   const recent = ok.slice().sort((a, b) => b.paid_at - a.paid_at).slice(0, 6);
-  view.innerHTML = head("Overview", `Founders only · ${today()}`) + `
+  const strip = api.live ? await nowStrip() : "", feed = api.live ? await feed24h(clients, pay) : "";
+  view.innerHTML = head("Overview", `Founders only · ${today()}`) + strip + `
     <div class="grid kpis">
       <div class="card kpi hero"><span class="k-l">Revenue, all time</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(rev)}</span><span class="k-s">${money(revM)} this month · Stripe</span></div>
       <a class="card kpi" href="#/clients"><span class="k-l">Paying clients</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v" data-count="${clients.filter(c => c.paid).length}">0</span><span class="k-s">${clients.filter(c => c.paid && Date.now() - c.last < 30 * 864e5).length} active in 30 days</span></a>
@@ -476,7 +477,7 @@ async function team() {
       <div class="card"><div class="sec-h"><h2>Waiting</h2></div>
         <p class="label" style="margin:0 0 8px">On us</p>${waitingUs.length ? `<div class="tlist">${waitingUs.map(v => row(v, "since " + ago(v.created_at))).join("")}</div>` : `<p class="small muted">Nothing waiting. Nice.</p>`}
         <p class="label" style="margin:16px 0 8px">On clients</p>${waitingThem.length ? `<div class="tlist">${waitingThem.map(v => row(v, "delivered " + ago(v.delivered_at))).join("")}</div>` : `<p class="small muted">No Shorts waiting for approval.</p>`}</div>
-    </div>`;
+    </div>${feed ? `<div style="margin-top:16px">${feed}</div>` : ""}`;
 }
 
 async function clients() {
@@ -583,6 +584,91 @@ function bindNotes(base) {
   view.querySelectorAll("[data-done]").forEach(c => c.onchange = async () => { try { await api.updateCrmNote(c.dataset.done, { done: c.checked }); route(); } catch (err) { toast(err.message); } });
 }
 
+/* ---------------- founders, part 3: the questions Benas and Simas ask Claude most (10-21, from 2,000+ of their messages) ----------------
+   replies waiting · samples by stage and builder · leads added vs 150 · the last 24 hours · each lead's conversation */
+const SIMAS_INBOXES = ["simas@bejucreative.com", "simon@bejucreative.org", "studio@bejucreative.org", "editor@bejucreative.org", "team@bejucreative.com"];
+const ownerOf = inbox => !inbox ? "" : SIMAS_INBOXES.includes(inbox.toLowerCase()) ? "Simas" : "Benas";
+const LEAD_TARGET = 150;
+const minsAgo = t => { const m = Math.round((Date.now() - Date.parse(t)) / 6e4); return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d`; };
+const stageOf = p => { const s = (p.status || "").toUpperCase();
+  return p.paid || /WON|DONE/.test(s) ? "paid" : /LOST/.test(s) ? "lost" : p.delivered_at ? (/HOT|REPLIED|BRIEF/.test(s) ? "talking" : "delivered") : p.yes_at ? "building" : "asked"; };
+const STAGES = [["building", "Building"], ["delivered", "Delivered, waiting"], ["talking", "Talking after the sample"], ["paid", "Paid"], ["lost", "Lost"]];
+const sideOf = b => /benas/i.test(b || "") ? "Benas" : /simas|video-creator/i.test(b || "") ? "Simas" : "";
+
+async function nowStrip() {
+  const [rq, pipe, adds, fus, items, camps, daily] = await Promise.all(["reply_queue", "pipeline", "lead_adds", "fu_sends", "today_items", "campaign_live", "campaign_daily"].map(t => api.live(t)));
+  const d0 = localDay(), open = rq.filter(r => r.kind === "REAL" && !r.answered && !r.blocklisted);
+  const added = adds.filter(a => a.day === d0).reduce((s, a) => s + a.n, 0);
+  const building = pipe.filter(p => stageOf(p) === "building");
+  const fuToday = fus.filter(f => localDay(new Date(f.sent_at)) === d0).length, fuQueued = items.filter(i => i.kind === "followup").length;
+  const e1 = daily.filter(x => x.day === d0).reduce((s, x) => s + (x.new_leads || 0), 0);
+  return `<div class="grid kpis">
+    <a class="card kpi ${open.length ? "alert" : ""}" href="#/replies"><span class="k-l">Replies waiting</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${open.length}">0</span><span class="k-s">${open.length ? `oldest ${minsAgo(open.reduce((a, b) => a.received_at < b.received_at ? a : b).received_at)} · ${open.filter(r => ownerOf(r.inbox) === "Simas").length} Simas · ${open.filter(r => ownerOf(r.inbox) === "Benas").length} Benas` : "everything is answered"}</span></a>
+    <a class="card kpi" href="#/outreach"><span class="k-l">New leads added today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${added}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${e1} first emails sent today · ${camps.reduce((s, c) => s + (c.uncontacted || 0), 0)} in the queue</span></a>
+    <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).slice(0, 3).join(", ") : "nothing in production"}</span></a>
+    <a class="card kpi" href="#/today"><span class="k-l">Hot-lead follow-ups</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fuToday}<small class="muted"> sent</small></span><span class="k-s">${fuQueued} more queued for 16:00</span></a>
+  </div>`;
+}
+
+async function feed24h(clients, pay) {
+  const [th, pipe, adds, fus] = await Promise.all(["threads", "pipeline", "lead_adds", "fu_sends"].map(t => api.live(t)));
+  const since = Date.now() - 864e5, nameOf = e => (pipe.find(p => p.email === e) || {}).name || e;
+  const ev = [];
+  pay.filter(p => !p.refunded && p.paid_at >= since).forEach(p => ev.push([p.paid_at, "paid", `<b>${esc((clients.find(c => c.id === p.client_id) || {}).name || p.payer_name || "Someone")}</b> paid ${money(p.amount)}${p.package ? " · " + esc(p.package) : ""}`, p.client_id ? "#/client/" + p.client_id : "#/clients"]));
+  th.filter(t => t.direction === "in" && Date.parse(t.at) >= since).forEach(t => ev.push([Date.parse(t.at), "reply", `<b>${esc(nameOf(t.lead_email))}</b> wrote: ${esc((t.snippet || "").slice(0, 110))}`, leadHref(t.lead_email)]));
+  th.filter(t => t.direction === "out" && Date.parse(t.at) >= since).forEach(t => ev.push([Date.parse(t.at), "sent", `We emailed <b>${esc(nameOf(t.lead_email))}</b> (${esc((t.inbox || "").split("@")[0])}): ${esc((t.snippet || "").slice(0, 90))}`, leadHref(t.lead_email)]));
+  pipe.filter(p => p.delivered_at && Date.parse(p.delivered_at) >= since).forEach(p => ev.push([Date.parse(p.delivered_at), "sample", `Sample delivered to <b>${esc(p.name || p.email)}</b>${p.builder ? " · built by " + esc(sideOf(p.builder) || p.builder) : ""}`, leadHref(p.email)]));
+  pipe.filter(p => p.yes_at && Date.parse(p.yes_at) >= since).forEach(p => ev.push([Date.parse(p.yes_at), "yes", `<b>${esc(p.name || p.email)}</b> said yes to a sample`, leadHref(p.email)]));
+  const yday = localDay(new Date(since)), d0 = localDay();
+  adds.filter(a => a.day === d0 || a.day === yday).forEach(a => ev.push([Date.parse(a.day + "T12:00:00"), "leads", `${a.n} new leads added to Instantly · ${esc(a.tab)} (${a.day === d0 ? "today" : "yesterday"})`, "#/outreach"]));
+  ev.sort((a, b) => b[0] - a[0]);
+  const IC = { paid: "bolt", reply: "bell", sent: "up", sample: "film", yes: "check", leads: "star" };
+  return `<div class="card"><div class="sec-h"><h2>Last 24 hours</h2><span class="small muted">${ev.length} events · updated by the hourly sync</span></div>
+    ${ev.length ? `<div class="tlist">${ev.slice(0, 40).map(([t, k, txt, href]) => `<a class="trow feed" href="${href}"><span class="row" style="gap:10px;align-items:flex-start">${icon(IC[k], "fi")}<span>${txt}</span></span><span class="small muted mono">${new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" })}</span></a>`).join("")}</div>` : `<p class="small muted">Quiet day so far.</p>`}</div>`;
+}
+
+async function repliesPage() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [rq, pipe, st] = await Promise.all([api.live("reply_queue"), api.live("pipeline"), api.live("sync_status")]);
+  const nameOf = e => (pipe.find(p => p.email === e) || {}).name || e;
+  const open = rq.filter(r => r.kind === "REAL" && !r.answered && !r.blocklisted).sort((a, b) => a.received_at.localeCompare(b.received_at));
+  const answered = rq.filter(r => r.kind === "REAL" && r.answered).sort((a, b) => b.received_at.localeCompare(a.received_at));
+  const stops = rq.filter(r => r.blocklisted), auto = rq.filter(r => r.kind !== "REAL" && !r.blocklisted);
+  const row = (r, right) => `<a class="trow" href="${leadHref(r.lead_email)}"><span><b>${esc(nameOf(r.lead_email))}</b><span class="small muted">${esc(r.snippet || "")}</span></span>
+    <span class="row" style="flex:none"><span class="chip ${ownerOf(r.inbox) === "Simas" ? "st-received" : "st-editing"}">${ownerOf(r.inbox)} · ${esc((r.inbox || "").split("@")[0])}</span><span class="small muted mono">${right}</span></span></a>`;
+  view.innerHTML = head("Replies", `Last 7 days, every inbox · ${synced(st, "sheet")}`) + `
+    <div class="grid kpis">
+      <div class="card kpi ${open.length ? "alert hero" : "hero"}"><span class="k-l">Waiting for our answer</span><span class="k-ic">${icon("bell")}</span><span class="k-v" data-count="${open.length}">0</span><span class="k-s">${open.length ? "oldest first" : "everything is answered"}</span></div>
+      <div class="card kpi"><span class="k-l">Answered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${answered.length}">0</span><span class="k-s">real replies, 7 days</span></div>
+      <div class="card kpi"><span class="k-l">Stops, blocklisted</span><span class="k-ic t-gold">${icon("shield")}</span><span class="k-v" data-count="${stops.length}">0</span><span class="k-s">no reply needed</span></div>
+      <div class="card kpi"><span class="k-l">Auto-replies</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v" data-count="${auto.length}">0</span><span class="k-s">out of office and the like</span></div>
+    </div>
+    <div class="card"><div class="sec-h"><h2>Waiting for our answer</h2><span class="small muted">some only need a look: "will get back to you", newsletters</span></div>
+      ${open.length ? `<div class="tlist">${open.map(r => row(r, "waiting " + minsAgo(r.received_at))).join("")}</div>` : `<p class="small muted">Nothing waiting. Nice.</p>`}</div>
+    <div class="card" style="margin-top:16px"><div class="sec-h"><h2>Answered</h2></div>
+      ${answered.length ? `<div class="tlist">${answered.slice(0, 30).map(r => row(r, shortDate(Date.parse(r.received_at)))).join("")}</div>` : `<p class="small muted">None in 7 days.</p>`}</div>`;
+}
+
+async function samplesPage() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [pipe, st] = await Promise.all([api.live("pipeline"), api.live("sync_status")]);
+  const d0 = localDay(), wk = Date.now() - 7 * 864e5;
+  const built = pipe.filter(p => p.delivered_at), by = s => built.filter(p => sideOf(p.builder) === s);
+  const count = (L, f) => L.filter(f).length;
+  view.innerHTML = head("Samples", `From the Samples tab · ${synced(st, "sheet")}`) + `
+    <div class="grid kpis">${STAGES.slice(0, 4).map(([k, l], i) => `<div class="card kpi${i ? "" : " hero"}"><span class="k-l">${l}</span><span class="k-ic${i ? " t-gold" : ""}">${icon(["film", "clock", "bell", "bolt"][i])}</span><span class="k-v" data-count="${pipe.filter(p => stageOf(p) === k).length}">0</span><span class="k-s">${k === "building" ? "said yes, not delivered" : k === "paid" ? "from a sample" : "leads"}</span></div>`).join("")}</div>
+    <div class="card" style="margin-bottom:16px"><div class="sec-h"><h2>Who built them</h2><span class="small muted">delivered samples</span></div>
+      ${["Simas", "Benas"].map(s => `<div class="mrow"><span>${s}'s Mac</span><b class="mono">${count(by(s), p => localDay(new Date(p.delivered_at)) === d0)} today · ${count(by(s), p => Date.parse(p.delivered_at) >= wk)} this week · ${by(s).length} all</b></div>`).join("")}
+      <p class="small muted" style="margin:10px 0 0">Rule (Simas 10-21): samples are built by the inbox owner's side, paid packs take turns, revisions go to whoever built the video.</p></div>
+    ${STAGES.map(([k, l]) => { const L = pipe.filter(p => stageOf(p) === k).sort((a, b) => (Date.parse(b.yes_at || 0) || 0) - (Date.parse(a.yes_at || 0) || 0));
+      return L.length ? `<div class="card" style="margin-bottom:16px"><div class="sec-h"><h2>${l}</h2><span class="small muted">${L.length}</span></div><div class="tlist">${L.map(p =>
+        `<a class="trow" href="${leadHref(p.email)}"><span><b>${esc(p.name || p.email)}</b><span class="small muted">${esc(p.show || "")}${p.next_action ? " · " + esc(p.next_action.slice(0, 90)) : ""}</span></span>
+         <span class="row" style="flex:none">${p.builder ? `<span class="chip ${sideOf(p.builder) === "Simas" ? "st-received" : "st-editing"}">${esc(sideOf(p.builder) || "")} ${esc((p.builder.split("·")[1] || "").trim().slice(0, 18))}</span>` : ""}
+         <span class="small muted mono">${k === "building" ? (p.due_at ? "due " + new Date(p.due_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "") : p.delivered_at ? "delivered " + shortDate(Date.parse(p.delivered_at)) : ""}</span></span></a>`).join("")}</div></div>` : ""; }).join("")}`;
+}
+
 async function outreach() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
@@ -626,10 +712,11 @@ async function outreach() {
 async function todayPage() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
-  const [items, notes, st, { clients }] = await Promise.all([api.live("today_items", "at"), api.openNotes(), api.live("sync_status"), crm()]);
+  const [items, notes, st, { clients }, pipe] = await Promise.all([api.live("today_items", "at"), api.openNotes(), api.live("sync_status"), crm(), api.live("pipeline")]);
+  const payers = new Set([...clients.filter(c => c.paid).flatMap(c => (c.emails || []).map(e => e.toLowerCase())), ...pipe.filter(p => p.paid).map(p => p.email)]);
   const d0 = localDay(), due = notes.filter(n => n.due_at <= d0);
   const time = t => t ? new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
-  const list = (kinds, empty) => { const xs = items.filter(i => kinds.includes(i.kind));
+  const list = (kinds, empty, who) => { const xs = items.filter(i => kinds.includes(i.kind) && (!who || (who === "client") === payers.has(i.lead_email)));
     return xs.length ? `<div class="tlist">${xs.map(i => `<a class="trow" href="${i.lead_email ? leadHref(i.lead_email) : "#/today"}"><span><b>${esc(i.title)}</b><span class="small muted">${esc(i.detail || "")}</span></span><span class="small muted mono">${time(i.at)}</span></a>`).join("")}</div>` : `<p class="small muted">${empty}</p>`; };
   const month = Date.now() - 30 * 864e5;
   const PACK = { short_1: 1, short_3: 3, short_4: 4, short_5: 5 };
@@ -640,8 +727,9 @@ async function todayPage() {
   view.innerHTML = head("Today", `${today()} · follow-ups + pipeline ${synced(st, "sheet")}`) + `
     <div class="grid two">
       <div class="stack">
-        <div class="card"><div class="sec-h"><h2>Calls &amp; next actions</h2><span class="small muted">due today</span></div>${list(["call", "action"], "Nothing scheduled for today.")}</div>
-        <div class="card"><div class="sec-h"><h2>Follow-ups going out</h2><span class="small muted">16:00 run</span></div>${list(["followup"], "No follow-ups queued for today.")}</div>
+        <div class="card"><div class="sec-h"><h2>Leads: calls &amp; next actions</h2><span class="small muted">due today · not paid yet</span></div>${list(["call", "action"], "Nothing scheduled for today.", "lead")}</div>
+        <div class="card"><div class="sec-h"><h2>Paying clients: work due</h2><span class="small muted">no sales follow-ups here</span></div>${list(["call", "action"], "No client work due today.", "client")}</div>
+        <div class="card"><div class="sec-h"><h2>Hot-lead follow-ups going out</h2><span class="small muted">16:00 run · payers are never included</span></div>${list(["followup"], "No follow-ups queued for today.", "lead")}</div>
         <div class="card"><div class="sec-h"><h2>Samples due</h2></div>${list(["sample_due"], "No samples due today.")}</div>
       </div>
       <div class="stack">
@@ -711,6 +799,14 @@ async function leads() {
   $("#q").oninput = e => { const q = e.target.value.toLowerCase(); view.querySelectorAll(".crow").forEach(r => r.hidden = !r.dataset.q.includes(q)); };
 }
 
+async function convoCard(email) {
+  const [th, fus] = await Promise.all([api.live("threads"), api.live("fu_sends")]);
+  const mine = th.filter(t => t.lead_email === email).sort((a, b) => b.at.localeCompare(a.at)), fu = fus.filter(f => f.lead_email === email);
+  return `<div class="card"><div class="sec-h"><h2>Conversation</h2><span class="small muted">last 14 days · ${fu.length} hot-lead follow-up${fu.length === 1 ? "" : "s"} sent</span></div>
+    ${mine.length ? `<div class="tlist">${mine.slice(0, 12).map(t => `<div class="trow msg ${t.direction}"><span><b>${t.direction === "in" ? "They wrote" : "We sent · " + esc((t.inbox || "").split("@")[0])}</b><span class="small">${esc(t.snippet || "")}</span></span>
+      <span class="small muted mono" style="flex:none">${new Date(t.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" })}</span></div>`).join("")}</div>` : `<p class="small muted">No emails in the last 14 days.</p>`}</div>`;
+}
+
 async function leadPage(email) {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
@@ -727,7 +823,7 @@ async function leadPage(email) {
         <div class="card"><div class="sec-h"><h2>Next action</h2><span class="small muted">${p.next_action_at ? shortDate(Date.parse(p.next_action_at)) : ""}</span></div><p style="margin:0">${esc(p.next_action || "—")}</p>
           ${p.notes ? `<p class="label" style="margin:16px 0 6px">Sheet notes</p><p class="small" style="margin:0;white-space:pre-wrap">${esc(p.notes)}</p>` : ""}</div>
       </div>
-      <div class="stack">${await notesCard("lead_email", p.email)}</div>
+      <div class="stack">${await convoCard(p.email)}${await notesCard("lead_email", p.email)}</div>
     </div>`;
   bindNotes({ lead_email: p.email });
 }
@@ -758,6 +854,8 @@ async function render() {
   else if (h === "#/outreach") await outreach();
   else if (h === "#/funnel") await funnel();
   else if (h === "#/leads") await leads();
+  else if (h === "#/replies") await repliesPage();
+  else if (h === "#/samples") await samplesPage();
   else if (h.startsWith("#/lead/")) await leadPage(decodeURIComponent(h.slice(7)));
   else if (h === "#/account") account();
   else if (h.startsWith("#/v/")) await videoPage(h.slice(4));
