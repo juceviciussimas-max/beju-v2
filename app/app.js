@@ -71,6 +71,11 @@ function SupabaseBackend(url, key) {
     async crmPayments() { return must(await sb.from("payments").select("*")).map(p => ({ ...p, paid_at: Date.parse(p.paid_at) })); },
     async crmDeliveries() { return must(await sb.from("deliveries").select("*")).map(d => ({ ...d, delivered_at: d.delivered_at ? Date.parse(d.delivered_at) : null })); },
     async updateClient(id, patch) { must(await sb.from("clients").update(patch).eq("id", id)); },
+    async live(table, order) { let q = sb.from(table).select("*"); if (order) q = q.order(order); return must(await q); },
+    async crmNotes(col, val) { return must(await sb.from("crm_notes").select("*").eq(col, val).order("created_at", { ascending: false })); },
+    async openNotes() { return must(await sb.from("crm_notes").select("*").eq("done", false).not("due_at", "is", null).order("due_at")); },
+    async addCrmNote(row) { must(await sb.from("crm_notes").insert(row)); },
+    async updateCrmNote(id, patch) { must(await sb.from("crm_notes").update(patch).eq("id", id)); },
     async addPurchase(uid, pack) { must(await sb.from("purchases").insert({ user_id: uid, pack_id: pack.id, videos: pack.videos, amount: pack.price })); },
     async buy(uid, pack, email) {   // real money: Stripe Payment Link; the webhook adds the credits
       const u = new URL(pack.link); u.searchParams.set("prefilled_email", email); u.searchParams.set("client_reference_id", uid);
@@ -523,11 +528,13 @@ async function clientPage(id) {
           ${field("youtube", "YouTube channel", "https://youtube.com/@…")}${field("instagram", "Instagram", "https://instagram.com/…")}${field("website", "Website", "https://…")}
           ${field("show", "Show / brand", "")}${field("niche", "Niche", "e.g. fitness coach")}
           <label for="f-notes">Notes</label><textarea id="f-notes" data-k="notes" placeholder="Style, preferences, what they like…">${esc(c.notes || "")}</textarea></div>`}
+        ${c.portalOnly || !api.crmNotes ? "" : await notesCard("client_id", c.id)}
         ${c.user_id ? `<div class="card"><div class="sec-h"><b style="color:var(--ink);font-size:14px">Add a portal pack by hand</b></div>
           <p class="small muted" style="margin:0 0 10px">For a payment made outside the portal, so they can upload and order.</p>
           <div class="row">${CFG.packs.map(p => `<button class="btn btn-line btn-sm" data-add="${p.id}">+ ${p.videos} (${money(p.price)})</button>`).join("")}</div></div>` : ""}
       </div>
     </div>`;
+  if (!c.portalOnly && api.crmNotes) bindNotes({ client_id: c.id });
   view.querySelectorAll("[data-k]").forEach(inp => inp.onchange = async () => {
     try { await api.updateClient(c.id, { [inp.dataset.k]: inp.value.trim() || null }); $("#saved").textContent = "Saved ✓"; } catch (err) { toast(err.message); }
   });
@@ -541,6 +548,188 @@ async function clientPage(id) {
     try { await api.addPurchase(c.user_id, pack); toast(`${pack.videos} credit${pack.videos > 1 ? "s" : ""} added for ${c.name}`); route(); }
     catch (err) { toast(err.message); b.removeAttribute("aria-busy"); }
   });
+}
+
+/* ---------------- founders, part 2: live outreach, today, funnel & money, leads (supabase/crm_live.sql) ----------------
+   Instantly numbers come from the instantly-sync function every 10 min; the pipeline (Samples tab), today's follow-ups and
+   Drive deliveries come from scripts/crm_sync.py every hour. */
+const pct = (a, b) => b ? (100 * a / b).toFixed(a && a / b < 0.1 ? 1 : 0) + "%" : "—";
+const localDay = (d = new Date()) => d.toLocaleDateString("sv-SE", { timeZone: "Europe/Vilnius" });
+const synced = (st, name) => { const s = st.find(x => x.name === name); return !s ? "not synced yet" : s.ok ? `updated ${ago(Date.parse(s.ran_at))}` : `⚠ sync failed ${ago(Date.parse(s.ran_at))}: ${esc(s.detail)}`; };
+const pipeChip = s => { const k = (s || "").toUpperCase();
+  const cls = /WON|DONE|PAID/.test(k) ? "st-approved" : /HOT/.test(k) ? "st-revision" : /DELIVER|PUBLIC/.test(k) ? "st-ready" : /LOST|STOP/.test(k) ? "st-lost" : /YES|CLAIM|BUILD/.test(k) ? "st-editing" : "st-received";
+  return `<span class="chip ${cls}">${esc(s || "—")}</span>`; };
+const leadHref = e => `#/lead/${encodeURIComponent(e)}`;
+const lastDays = n => [...Array(n)].map((_, i) => localDay(new Date(Date.now() - (n - 1 - i) * 864e5)));
+const bars = (rows, val, part, tip) => { const mx = Math.max(1, ...rows.map(val));
+  return `<div class="bars">${rows.map(r => `<div class="bar" title="${esc(tip(r))}"><i style="height:${100 * val(r) / mx}%">${part ? `<b style="height:${val(r) ? 100 * part(r) / val(r) : 0}%"></b>` : ""}</i><span>${esc(r.label)}</span></div>`).join("")}</div>`; };
+const liveOnly = () => { if (api.live) return false; view.innerHTML = head("Founders", "This page needs the live portal (Supabase)."); return true; };
+
+const noteRow = (n, link = "") => { const late = n.due_at && !n.done && n.due_at < localDay();
+  return `<div class="trow note${n.done ? " done" : ""}"><label class="nchk"><input type="checkbox" data-done="${n.id}"${n.done ? " checked" : ""}>
+    <span><b>${esc(n.body)}</b><span class="small muted">${esc(n.author || "")} · ${shortDate(Date.parse(n.created_at))}${link ? ` · <a href="${link}">open</a>` : ""}</span></span></label>
+    ${n.due_at ? `<span class="chip ${n.done ? "st-approved" : late ? "st-revision" : "st-received"}">${late ? "overdue · " : "due "}${shortDate(Date.parse(n.due_at))}</span>` : ""}</div>`; };
+async function notesCard(col, val) {
+  const ns = await api.crmNotes(col, val);
+  return `<div class="card"><div class="sec-h"><h2>Notes &amp; to-dos</h2><span class="small muted">${ns.filter(n => !n.done).length} open</span></div>
+    <form id="nf" class="nform"><textarea id="nb" placeholder="Add a note, or a to-do with a due date…" required></textarea>
+      <div class="row"><label for="nd" class="small muted" style="margin:0">Due</label><input id="nd" type="date"><button class="btn btn-dark btn-sm">Add</button></div></form>
+    ${ns.length ? `<div class="tlist">${ns.map(noteRow).join("")}</div>` : `<p class="small muted">No notes yet.</p>`}</div>`;
+}
+function bindNotes(base) {
+  const f = $("#nf");
+  if (f) f.onsubmit = async e => { e.preventDefault();
+    try { await api.addCrmNote({ ...base, body: $("#nb").value.trim(), due_at: $("#nd").value || null, author: ME.name || ME.email }); route(); } catch (err) { toast(err.message); } };
+  view.querySelectorAll("[data-done]").forEach(c => c.onchange = async () => { try { await api.updateCrmNote(c.dataset.done, { done: c.checked }); route(); } catch (err) { toast(err.message); } });
+}
+
+async function outreach() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [camps, daily, inbox, iday, st] = await Promise.all(["campaign_live", "campaign_daily", "inbox_live", "inbox_daily", "sync_status"].map(t => api.live(t)));
+  const d0 = localDay(), wk = lastDays(7), days14 = lastDays(14);
+  const dayOf = (cid, d) => daily.find(x => x.campaign_id === cid && x.day === d) || {};
+  const perDay = c => Math.min(c.daily_max_leads || 0, c.uncontacted || 0);
+  const sum = (xs, f) => xs.reduce((s, x) => s + (Number(f(x)) || 0), 0);
+  const cap = sum(camps, c => c.daily_max_leads), queue = sum(camps, c => c.uncontacted), going = sum(camps, perDay);
+  const sentT = sum(camps, c => dayOf(c.campaign_id, d0).sent), newT = sum(camps, c => dayOf(c.campaign_id, d0).new_leads), repT = sum(camps, c => dayOf(c.campaign_id, d0).replies);
+  view.innerHTML = head("Outreach", `Live from Instantly · ${synced(st, "instantly")}`) + `
+    <div class="grid kpis">
+      <div class="card kpi hero"><span class="k-l">New leads per day</span><span class="k-ic">${icon("bolt")}</span><span class="k-v" data-count="${going}">0</span><span class="k-s">daily cap ${cap} · ${queue < cap ? "queue is shorter than the cap" : "queue covers the cap"}</span></div>
+      <div class="card kpi"><span class="k-l">Queue, not emailed yet</span><span class="k-ic t-gold">${icon("film")}</span><span class="k-v" data-count="${queue}">0</span><span class="k-s">${going ? `≈ ${Math.floor(queue / Math.max(1, cap))} day${Math.floor(queue / Math.max(1, cap)) === 1 ? "" : "s"} at the full cap` : "add leads"}</span></div>
+      <div class="card kpi"><span class="k-l">Sent today</span><span class="k-ic t-violet">${icon("up")}</span><span class="k-v" data-count="${sentT}">0</span><span class="k-s">${newT} new leads started</span></div>
+      <div class="card kpi"><span class="k-l">Replies today</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${repT}">0</span><span class="k-s">people, auto-replies left out</span></div>
+    </div>
+    <div class="grid two">${camps.sort((a, b) => a.name.localeCompare(b.name)).map(c => {
+      const rows = days14.map(d => ({ ...dayOf(c.campaign_id, d), label: d.slice(8), day: d }));
+      const br = c.new_contacted ? c.bounced / c.new_contacted : 0;
+      return `<div class="card"><div class="sec-h"><h2>${esc(c.name)}</h2><span class="small muted">${c.inboxes} inboxes</span></div>
+        <div class="mrow"><span>New leads per day</span><b class="mono">${perDay(c)} <span class="small muted">of ${c.daily_max_leads ?? "—"} cap</span></b></div>
+        <div class="mrow"><span>Queue</span><b class="mono">${c.uncontacted} <span class="small muted">of ${c.leads_total} loaded</span></b></div>
+        <div class="mrow"><span>Leads contacted</span><b class="mono">${c.new_contacted}</b></div>
+        <div class="mrow"><span>Human replies</span><b class="mono">${c.replies} <span class="small muted">${pct(c.replies, c.new_contacted)}</span></b></div>
+        <div class="mrow"><span>Bounce rate</span><b class="mono ${br > .015 ? "bad" : ""}">${pct(c.bounced, c.new_contacted)} <span class="small muted">${c.bounced} bounced</span></b></div>
+        <p class="label" style="margin:16px 0 6px">Last 14 days · sent (dark = new leads)</p>
+        ${bars(rows, r => r.sent || 0, r => r.new_leads || 0, r => `${r.day}: ${r.sent || 0} sent · ${r.new_leads || 0} new leads · ${r.replies || 0} replies`)}</div>`; }).join("")}</div>
+    <div class="card tablebox" style="margin-top:16px"><div class="sec-h" style="padding:16px 18px 0"><h2>Inboxes</h2><span class="small muted">last 7 days</span></div>
+      <table><thead><tr><th>Inbox</th><th>Sent today</th><th>Sent 7d</th><th>Replies 7d</th><th>Bounces 7d</th><th>Warmup</th><th>Limit/day</th></tr></thead><tbody>
+      ${inbox.sort((a, b) => (b.campaigns.length - a.campaigns.length) || a.email.localeCompare(b.email)).map(i => {
+        const w = iday.filter(x => x.email === i.email && wk.includes(x.day)), t = iday.find(x => x.email === i.email && x.day === d0) || {};
+        const s7 = sum(w, x => x.sent), b7 = sum(w, x => x.bounced);
+        return `<tr><td><b style="color:var(--ink)">${esc(i.email)}</b><br><span class="small muted">${i.campaigns.length ? esc(i.campaigns.map(n => n.split(" —")[0]).join(", ")) : "warming, not in a campaign"}</span></td>
+          <td class="mono">${t.sent || 0}</td><td class="mono">${s7}</td><td class="mono">${sum(w, x => x.replies)}</td>
+          <td class="mono ${s7 && b7 / s7 > .015 ? "bad" : ""}">${b7}${s7 ? ` <span class="small muted">${pct(b7, s7)}</span>` : ""}</td>
+          <td class="mono">${i.warmup_score ?? "—"}</td><td class="mono">${i.daily_limit ?? "—"}</td></tr>`; }).join("")}
+      </tbody></table></div>`;
+}
+
+async function todayPage() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [items, notes, st, { clients }] = await Promise.all([api.live("today_items", "at"), api.openNotes(), api.live("sync_status"), crm()]);
+  const d0 = localDay(), due = notes.filter(n => n.due_at <= d0);
+  const time = t => t ? new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
+  const list = (kinds, empty) => { const xs = items.filter(i => kinds.includes(i.kind));
+    return xs.length ? `<div class="tlist">${xs.map(i => `<a class="trow" href="${i.lead_email ? leadHref(i.lead_email) : "#/today"}"><span><b>${esc(i.title)}</b><span class="small muted">${esc(i.detail || "")}</span></span><span class="small muted mono">${time(i.at)}</span></a>`).join("")}</div>` : `<p class="small muted">${empty}</p>`; };
+  const month = Date.now() - 30 * 864e5;
+  const PACK = { short_1: 1, short_3: 3, short_4: 4, short_5: 5 };
+  const paidWork = clients.map(c => { const ps = c.pays.filter(p => p.paid_at >= month); if (!ps.length) return null;
+    const from = Math.min(...ps.map(p => p.paid_at)), bought = ps.reduce((s, p) => s + (PACK[p.package] || 0), 0);
+    const files = c.dels.filter(d => (d.delivered_at || 0) >= from - 864e5).length + c.videos.filter(v => v.delivered_at >= from).length;
+    return { c, bought, files, from, indexed: c.dels.length > 0 || c.videos.length > 0 }; }).filter(Boolean).sort((a, b) => (a.files >= a.bought) - (b.files >= b.bought) || b.from - a.from);
+  view.innerHTML = head("Today", `${today()} · follow-ups + pipeline ${synced(st, "sheet")}`) + `
+    <div class="grid two">
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Calls &amp; next actions</h2><span class="small muted">due today</span></div>${list(["call", "action"], "Nothing scheduled for today.")}</div>
+        <div class="card"><div class="sec-h"><h2>Follow-ups going out</h2><span class="small muted">16:00 run</span></div>${list(["followup"], "No follow-ups queued for today.")}</div>
+        <div class="card"><div class="sec-h"><h2>Samples due</h2></div>${list(["sample_due"], "No samples due today.")}</div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>To-dos due</h2><span class="small muted">${due.length} open</span></div>
+          ${due.length ? `<div class="tlist">${due.map(n => noteRow(n, n.client_id ? "#/client/" + n.client_id : leadHref(n.lead_email))).join("")}</div>` : `<p class="small muted">No to-dos due. Add them from a lead or client page.</p>`}</div>
+        <div class="card"><div class="sec-h"><h2>Paid work, last 30 days</h2><span class="small muted">Shorts bought vs files delivered since</span></div>
+          ${paidWork.length ? `<div class="tlist">${paidWork.map(w => `<a class="trow" href="#/client/${w.c.id}"><span><b>${esc(w.c.name)}</b><span class="small muted">paid ${shortDate(w.from)}</span></span>
+            ${w.indexed ? `<span class="chip ${w.bought && w.files >= w.bought ? "st-approved" : "st-editing"}">${w.files}/${w.bought || "?"} delivered</span>` : `<span class="chip st-lost">${w.bought || "?"} bought · not indexed</span>`}</a>`).join("")}</div>` : `<p class="small muted">No payments in the last 30 days.</p>`}</div>
+      </div>
+    </div>`;
+  bindNotes({});
+}
+
+async function funnel() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [camps, pipe, { clients, pay }] = await Promise.all([api.live("campaign_live"), api.live("pipeline"), crm()]);
+  const sum = (xs, f) => xs.reduce((s, x) => s + (Number(f(x)) || 0), 0);
+  const paidEmails = new Set(clients.filter(c => c.paid).flatMap(c => c.emails || []));
+  const steps = [
+    ["Emails sent", sum(camps, c => c.emails_sent)], ["Leads contacted", sum(camps, c => c.new_contacted)], ["Human replies", sum(camps, c => c.replies)],
+    ["Said yes to a sample", pipe.filter(p => p.yes_at).length], ["Sample delivered", pipe.filter(p => p.delivered_at).length],
+    ["Paid", pipe.filter(p => p.paid || paidEmails.has(p.email)).length]];
+  const ok = pay.filter(p => !p.refunded), amt = p => Number(p.amount || 0);
+  const mStart = k => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); d.setMonth(d.getMonth() - k); return +d; };
+  const months = [5, 4, 3, 2, 1, 0].map(k => ({ from: mStart(k), to: k ? mStart(k - 1) : Infinity, label: new Date(mStart(k)).toLocaleDateString("en-GB", { month: "short" }) }));
+  months.forEach(m => m.v = ok.filter(p => p.paid_at >= m.from && p.paid_at < m.to).reduce((s, p) => s + amt(p), 0));
+  const wStart = k => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7 * k); return +d; };
+  const weeks = [7, 6, 5, 4, 3, 2, 1, 0].map(k => ({ from: wStart(k), to: wStart(k) + 7 * 864e5, label: shortDate(wStart(k)) }));
+  weeks.forEach(w => w.v = ok.filter(p => p.paid_at >= w.from && p.paid_at < w.to).reduce((s, p) => s + amt(p), 0));
+  const payers = clients.filter(c => c.pays.length), repeat = payers.filter(c => c.pays.length > 1);
+  const total = ok.reduce((s, p) => s + amt(p), 0), thisM = months[5].v, lastM = months[4].v;
+  view.innerHTML = head("Funnel & money", "Instantly (live) · Samples tab · Stripe") + `
+    <div class="grid kpis">
+      <div class="card kpi hero"><span class="k-l">Revenue this month</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(thisM)}</span><span class="k-s">${money(lastM)} last month · ${money(total)} all time</span></div>
+      <div class="card kpi"><span class="k-l">Average order</span><span class="k-ic t-gold">${icon("bag")}</span><span class="k-v">${money(ok.length ? total / ok.length : 0)}</span><span class="k-s">${ok.length} payments</span></div>
+      <div class="card kpi"><span class="k-l">Repeat buyers</span><span class="k-ic t-green">${icon("star")}</span><span class="k-v" data-count="${repeat.length}">0</span><span class="k-s">${pct(repeat.length, payers.length)} of ${payers.length} paying clients</span></div>
+      <div class="card kpi"><span class="k-l">Reply → paid</span><span class="k-ic t-violet">${icon("check")}</span><span class="k-v">${pct(steps[5][1], steps[2][1])}</span><span class="k-s">${steps[5][1]} paid from ${steps[2][1]} human replies</span></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><div class="sec-h"><h2>Funnel</h2><span class="small muted">sample steps tracked since 10-12</span></div>
+        <div class="funnel">${steps.map(([l, v], i) => `<div class="fstep"><div class="fbar" style="width:${Math.max(4, 100 * Math.log1p(v) / Math.log1p(Math.max(1, steps[0][1])))}%"></div>
+          <span><b>${l}</b><span class="small muted">${i ? pct(v, steps[i - 1][1]) + " of the step before" : "all time"}</span></span><b class="mono">${v.toLocaleString("en-US")}</b></div>`).join("")}</div></div>
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Revenue by month</h2></div>${bars(months, m => m.v, null, m => `${m.label}: ${money(m.v)}`)}</div>
+        <div class="card"><div class="sec-h"><h2>Revenue by week</h2></div>${bars(weeks, w => w.v, null, w => `week of ${w.label}: ${money(w.v)}`)}</div>
+      </div>
+    </div>`;
+}
+
+async function leads() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const [pipe, st] = await Promise.all([api.live("pipeline"), api.live("sync_status")]);
+  const ts = p => Date.parse(p.last_reply_at || p.delivered_at || p.yes_at || 0) || 0;
+  pipe.sort((a, b) => ts(b) - ts(a));
+  view.innerHTML = head("Leads", `${pipe.length} sample &amp; hot leads · Samples tab ${synced(st, "sheet")}`, `<input id="q" class="search" placeholder="Search name, email, show or status">`) + `
+    <div class="card tablebox"><table><thead><tr><th>Lead</th><th>Status</th><th>Inbox</th><th>Sample</th><th>Next action</th><th>Paid</th></tr></thead><tbody>
+    ${pipe.map(p => `<tr class="crow" data-q="${esc([p.name, p.email, p.show, p.status, p.inbox].join(" ").toLowerCase())}" data-href="${leadHref(p.email)}">
+      <td><b style="color:var(--ink)">${esc(p.name || p.email)}</b><br><span class="small muted">${esc(p.show || p.email)}</span></td>
+      <td>${pipeChip(p.status)}</td><td class="small">${esc((p.inbox || "").split("@")[0])}<br><span class="muted">${esc(p.owner || "")}</span></td>
+      <td class="small muted">${p.delivered_at ? "delivered " + shortDate(Date.parse(p.delivered_at)) : p.yes_at ? "yes " + shortDate(Date.parse(p.yes_at)) : "—"}</td>
+      <td class="small">${esc((p.next_action || "").slice(0, 90))}${p.next_action_at ? `<br><span class="muted">${shortDate(Date.parse(p.next_action_at))}</span>` : ""}</td>
+      <td class="small">${p.paid ? `<span class="chip st-approved">${esc(p.paid.split("·")[1] || "paid")}</span>` : "—"}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">No leads synced yet.</td></tr>`}
+    </tbody></table></div>`;
+  view.querySelectorAll(".crow").forEach(r => r.onclick = () => location.hash = r.dataset.href);
+  $("#q").oninput = e => { const q = e.target.value.toLowerCase(); view.querySelectorAll(".crow").forEach(r => r.hidden = !r.dataset.q.includes(q)); };
+}
+
+async function leadPage(email) {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const p = (await api.live("pipeline")).find(x => x.email === email);
+  if (!p) { view.innerHTML = `<a href="#/leads" class="back">← Leads</a><div class="card empty"><h3>Lead not found</h3></div>`; return; }
+  const when = (l, t) => `<div class="mrow"><span>${l}</span><b class="mono">${t ? new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "—"}</b></div>`;
+  view.innerHTML = `<a href="#/leads" class="back">← Leads</a>` + head(esc(p.name || p.email), `${esc(p.show || "")}${p.show ? " · " : ""}${esc(p.email)} · ${pipeChip(p.status)}`,
+      `<div class="row">${linkOut(p.drive_link, "Sample ↗")}</div>`) + `
+    <div class="grid two">
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Pipeline</h2><span class="small muted">${esc(p.owner || "")} · ${esc(p.inbox || "")}</span></div>
+          ${when("Said yes", p.yes_at)}${when("Sample due", p.due_at)}${when("Delivered", p.delivered_at)}${when("Last reply", p.last_reply_at)}
+          <div class="mrow"><span>Paid</span><b class="mono">${esc(p.paid || "—")}</b></div></div>
+        <div class="card"><div class="sec-h"><h2>Next action</h2><span class="small muted">${p.next_action_at ? shortDate(Date.parse(p.next_action_at)) : ""}</span></div><p style="margin:0">${esc(p.next_action || "—")}</p>
+          ${p.notes ? `<p class="label" style="margin:16px 0 6px">Sheet notes</p><p class="small" style="margin:0;white-space:pre-wrap">${esc(p.notes)}</p>` : ""}</div>
+      </div>
+      <div class="stack">${await notesCard("lead_email", p.email)}</div>
+    </div>`;
+  bindNotes({ lead_email: p.email });
 }
 
 function account() {
@@ -565,6 +754,11 @@ async function render() {
   else if (h === "#/team") await team();
   else if (h === "#/clients") await clients();
   else if (h.startsWith("#/client/")) await clientPage(h.slice(9));
+  else if (h === "#/today") await todayPage();
+  else if (h === "#/outreach") await outreach();
+  else if (h === "#/funnel") await funnel();
+  else if (h === "#/leads") await leads();
+  else if (h.startsWith("#/lead/")) await leadPage(decodeURIComponent(h.slice(7)));
   else if (h === "#/account") account();
   else if (h.startsWith("#/v/")) await videoPage(h.slice(4));
   else await dashboard();

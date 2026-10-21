@@ -345,3 +345,22 @@ button.trow:hover{background:var(--bg);transform:translateX(2px)}
 .mono,.kpi .k-v,.pack .price,.tsbtn,.steps .n,td{font-variant-numeric:tabular-nums}
 .kpi .k-v,.pack .price{font-weight:700;letter-spacing:-.035em}
 h1,h2,h3{letter-spacing:-.022em}
+
+/* founders, part 2: live outreach, funnel, notes (10-21) */
+.mrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.mrow:last-of-type{border-bottom:0} .mrow b{color:var(--ink);font-weight:600}
+.bad{color:var(--red)!important}
+.bars{display:flex;align-items:flex-end;gap:5px;height:120px;padding-top:6px}
+.bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px;height:100%;min-width:0}
+.bar i{display:flex;flex-direction:column;justify-content:flex-end;width:100%;min-height:2px;background:var(--gold-bright);border-radius:6px 6px 3px 3px;overflow:hidden}
+.bar i b{display:block;background:var(--olive)}
+.bar span{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;line-height:1}
+.st-lost{background:var(--line-2);color:var(--muted)}
+.funnel{display:flex;flex-direction:column;gap:10px}
+.fstep{position:relative;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--r-sm);overflow:hidden;background:var(--bg)}
+.fstep>span{display:flex;flex-direction:column;position:relative} .fstep>b{position:relative;color:var(--ink);font-size:17px}
+.fbar{position:absolute;inset:0 auto 0 0;background:var(--gold-soft);border-right:2px solid var(--gold)}
+.nform{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.nform textarea{min-height:64px} .nform .row{gap:8px} .nform input[type=date]{width:auto}
+.note{align-items:flex-start} .nchk{display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:0}
+.nchk input{margin-top:3px;accent-color:var(--olive)} .note.done b{text-decoration:line-through;color:var(--muted)}
