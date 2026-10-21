@@ -72,6 +72,8 @@ function SupabaseBackend(url, key) {
     async crmDeliveries() { return must(await sb.from("deliveries").select("*")).map(d => ({ ...d, delivered_at: d.delivered_at ? Date.parse(d.delivered_at) : null })); },
     async updateClient(id, patch) { must(await sb.from("clients").update(patch).eq("id", id)); },
     async live(table, order) { let q = sb.from(table).select("*"); if (order) q = q.order(order); return must(await q); },
+    async insertRow(table, row) { return must(await sb.from(table).insert(row).select().single()); },
+    async updateRow(table, id, patch) { must(await sb.from(table).update(patch).eq("id", id)); },
     async crmNotes(col, val) { return must(await sb.from("crm_notes").select("*").eq(col, val).order("created_at", { ascending: false })); },
     async openNotes() { return must(await sb.from("crm_notes").select("*").eq("done", false).not("due_at", "is", null).order("due_at")); },
     async addCrmNote(row) { must(await sb.from("crm_notes").insert(row)); },
@@ -551,6 +553,102 @@ async function clientPage(id) {
   });
 }
 
+/* ---------------- partners & referrals (supabase/crm_partners.sql, Simas 10-21: "a tab for referrals/affiliates like Henry") ----------------
+   One page per partner: channels, the deal, what each side owes (due / done / proof), the clients they sent and the commission
+   we owe. Stripe referrals (?ref=<code>) arrive from scripts/crm_sync.py; intro referrals are added by hand. */
+const REF_BASE = "https://bejucreative.digital/?ref=";
+const P_STATUS = { test: ["Test run", "st-editing"], active: ["Active", "st-approved"], paused: ["Paused", "st-received"], ended: ["Ended", "st-lost"] };
+const late = i => !i.done_at && i.due_at && i.due_at < localDay();
+async function partnerData() {
+  const [ps, items, refs] = await Promise.all(["partners", "partner_items", "referrals"].map(t => api.live(t)));
+  return ps.map(p => { const its = items.filter(i => i.partner_id === p.id).sort((a, b) => (a.due_at || "9") < (b.due_at || "9") ? -1 : 1);
+    const rs = refs.filter(r => r.partner_id === p.id).sort((a, b) => Date.parse(b.paid_at) - Date.parse(a.paid_at));
+    const owed = rs.filter(r => !r.paid_out_at).reduce((s, r) => s + Number(r.commission || 0), 0);
+    return { ...p, items: its, refs: rs, revenue: rs.reduce((s, r) => s + Number(r.amount || 0), 0), owed,
+      weOwe: its.filter(i => i.direction === "we_owe"), theyOwe: its.filter(i => i.direction === "they_owe") }; });
+}
+async function partners() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const ps = await partnerData();
+  view.innerHTML = head("Partners", `${ps.length} partner${ps.length === 1 ? "" : "s"} · ${ps.reduce((s, p) => s + p.refs.length, 0)} referred orders · ${money(ps.reduce((s, p) => s + p.owed, 0))} commission owed`) + `
+    <div class="card tablebox"><table><thead><tr><th>Partner</th><th>Status</th><th>Channels</th><th>Referred</th><th>Commission owed</th><th>Next from us</th><th>Their side</th></tr></thead><tbody>
+    ${ps.map(p => { const [st, cls] = P_STATUS[p.status] || [p.status, "st-received"]; const next = p.weOwe.find(i => !i.done_at), theirLate = p.theyOwe.filter(late).length;
+      return `<tr class="crow" data-href="#/partner/${p.id}"><td><b style="color:var(--ink)">${esc(p.name)}</b><br><span class="small muted">${esc(p.role || "")}${p.owner ? " · " + esc(p.owner) : ""}</span></td>
+        <td><span class="chip ${cls}">${st}</span></td>
+        <td><div class="row">${(p.channels || []).map(c => linkOut(c.url, esc(c.label || "link"))).join("")}</div></td>
+        <td class="mono">${p.refs.length}<br><span class="small muted">${money(p.revenue)}</span></td><td class="mono">${money(p.owed)}</td>
+        <td class="small">${next ? `${esc(next.item)}<br><span class="small ${late(next) ? "" : "muted"}">${late(next) ? "overdue · " : ""}${shortDate(Date.parse(next.due_at))}</span>` : `<span class="muted">—</span>`}</td>
+        <td class="small">${theirLate ? `<span class="chip st-revision">${theirLate} overdue</span>` : `${p.theyOwe.filter(i => i.done_at).length}/${p.theyOwe.length} done`}</td></tr>`; }).join("") || `<tr><td colspan="7" class="muted">No partners yet.</td></tr>`}
+    </tbody></table></div>
+    <form id="pnew" class="card nform"><div class="sec-h"><h2>Add a partner</h2></div>
+      <div class="row"><input id="pn" placeholder="Name" required><input id="pr" placeholder="Ref code, e.g. henry" pattern="[a-z0-9_-]+"><input id="pro" placeholder="Role, e.g. Facebook group admin"><button class="btn btn-dark btn-sm">Add</button></div></form>`;
+  view.querySelectorAll(".crow").forEach(r => r.onclick = e => { if (!e.target.closest("a")) location.hash = r.dataset.href; });
+  $("#pnew").onsubmit = async e => { e.preventDefault();
+    try { const p = await api.insertRow("partners", { name: $("#pn").value.trim(), ref_code: $("#pr").value.trim() || null, role: $("#pro").value.trim() || null, deal_start: localDay() });
+      location.hash = "#/partner/" + p.id; } catch (err) { toast(err.message); } };
+}
+async function partnerPage(id) {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const p = (await partnerData()).find(x => x.id === id);
+  if (!p) { view.innerHTML = `<div class="card empty"><h3>Partner not found</h3></div>`; return; }
+  const [st, cls] = P_STATUS[p.status] || [p.status, "st-received"];
+  const field = (k, label, type = "text", ph = "") => `<label for="f-${k}">${label}</label><input id="f-${k}" data-k="${k}" type="${type}" value="${esc(p[k] ?? "")}" placeholder="${ph}">`;
+  const itemRow = i => `<div class="trow note${i.done_at ? " done" : ""}"><label class="nchk"><input type="checkbox" data-item="${i.id}"${i.done_at ? " checked" : ""}>
+      <span><b>${esc(i.item)}</b><span class="small muted">${i.done_at ? "done " + shortDate(Date.parse(i.done_at)) : ""}${i.proof_url ? ` · <a href="${esc(i.proof_url)}" target="_blank" rel="noopener">proof ↗</a>` : ""}</span></span></label>
+      <span class="row">${i.done_at || i.proof_url ? "" : `<input class="proof" data-proof="${i.id}" placeholder="proof link" style="max-width:130px">`}
+      ${i.due_at ? `<span class="chip ${i.done_at ? "st-approved" : late(i) ? "st-revision" : "st-received"}">${late(i) ? "overdue · " : "due "}${shortDate(Date.parse(i.due_at))}</span>` : ""}</span></div>`;
+  const side = (dir, title, sub) => { const xs = p.items.filter(i => i.direction === dir);
+    return `<div class="card"><div class="sec-h"><h2>${title}</h2><span class="small muted">${sub} · ${xs.filter(i => i.done_at).length}/${xs.length} done</span></div>
+      ${xs.length ? `<div class="tlist">${xs.map(itemRow).join("")}</div>` : `<p class="small muted">Nothing yet.</p>`}
+      <form class="nform" data-add="${dir}"><div class="row"><input name="item" placeholder="${dir === "we_owe" ? "e.g. 2 Shorts (Tuesday drop)" : "e.g. Pinned announcement post"}" required><input name="due" type="date"><button class="btn btn-line btn-sm">Add</button></div></form></div>`; };
+  view.innerHTML = `<a href="#/partners" class="back">← Partners</a>` + head(esc(p.name), `${esc(p.role || "")}${p.owner ? " · owner " + esc(p.owner) : ""} · <span class="chip ${cls}">${st}</span>`,
+      `<div class="row">${(p.channels || []).map(c => linkOut(c.url, esc(c.label || "link") + " ↗")).join("")}</div>`) + `
+    <div class="grid kpis">
+      <div class="card kpi hero"><span class="k-l">Referred revenue</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(p.revenue)}</span><span class="k-s">${p.refs.length} order${p.refs.length === 1 ? "" : "s"} from ${p.ref_code ? "?ref=" + esc(p.ref_code) + " + intros" : "intros"}</span></div>
+      <div class="card kpi"><span class="k-l">Commission owed</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v">${money(p.owed)}</span><span class="k-s">${Number(p.commission_pct)}% of each client's first order</span></div>
+      <div class="card kpi"><span class="k-l">We delivered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v">${p.weOwe.filter(i => i.done_at).length}/${p.weOwe.length}</span><span class="k-s">${p.weOwe.filter(late).length} overdue</span></div>
+      <div class="card kpi"><span class="k-l">They delivered</span><span class="k-ic t-violet">${icon("up")}</span><span class="k-v">${p.theyOwe.filter(i => i.done_at).length}/${p.theyOwe.length}</span><span class="k-s">${p.theyOwe.filter(late).length} overdue</span></div>
+    </div>
+    <div class="grid two">
+      <div class="stack">
+        ${side("we_owe", "We owe them", "Shorts and drops")}
+        ${side("they_owe", "They owe us", "credit, posts, intros")}
+        <div class="card"><div class="sec-h"><h2>Referred clients</h2><span class="small muted">${p.ref_code ? `link: ${esc(REF_BASE + p.ref_code)}` : "no ref code yet"}</span></div>
+          ${p.refs.length ? `<div class="tlist">${p.refs.map(r => `<div class="trow"><span><b>${esc(r.name || r.email || "client")}</b><span class="small muted">${money(r.amount)} · ${shortDate(Date.parse(r.paid_at))} · ${r.source === "intro" ? "intro" : "ref link"}${r.first_order ? "" : " · repeat order, no commission"}</span></span>
+            ${Number(r.commission) ? (r.paid_out_at ? `<span class="chip st-approved">${money(r.commission)} paid ${shortDate(Date.parse(r.paid_out_at))}</span>` : `<button class="btn btn-line btn-sm" data-payout="${r.id}">Mark ${money(r.commission)} paid</button>`) : ""}</div>`).join("")}</div>`
+            : `<p class="small muted">No referred orders yet.</p>`}
+          <form id="rf" class="nform"><p class="small muted" style="margin:0 0 6px">Intro by email (no ref link)? Add it here.</p>
+            <div class="row"><input id="re" type="email" placeholder="client email" required><input id="ra" type="number" step="0.01" min="0" placeholder="first order $" required><input id="rd" type="date" required><button class="btn btn-line btn-sm">Add</button></div></form></div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Deal</h2><span class="small muted" id="saved"></span></div>
+          ${field("name", "Name")}${field("role", "Role", "text", "group admin / creator")}${field("email", "Email", "email")}${field("owner", "Owner", "text", "Simas / Benas")}
+          <label for="f-status">Status</label><select id="f-status" data-k="status">${Object.entries(P_STATUS).map(([k, [l]]) => `<option value="${k}"${p.status === k ? " selected" : ""}>${l}</option>`).join("")}</select>
+          ${field("ref_code", "Ref code", "text", "henry")}${field("commission_pct", "Commission % (first order)", "number")}
+          ${field("deal_start", "Deal start", "date")}${field("test_end", "Test run ends", "date")}${field("renewal_at", "Renewal / review", "date")}
+          <label for="f-channels">Channels <span class="small muted">one per line: label | url | audience</span></label>
+          <textarea id="f-channels" data-ch placeholder="Facebook group | https://facebook.com/groups/… | 12k members">${esc((p.channels || []).map(c => [c.label, c.url, c.audience].filter(Boolean).join(" | ")).join("\n"))}</textarea>
+          <label for="f-terms">Terms</label><textarea id="f-terms" data-k="terms">${esc(p.terms || "")}</textarea>
+          <label for="f-notes">Notes</label><textarea id="f-notes" data-k="notes">${esc(p.notes || "")}</textarea></div>
+      </div>
+    </div>`;
+  const save = async patch => { try { await api.updateRow("partners", p.id, patch); $("#saved").textContent = "Saved ✓"; } catch (err) { toast(err.message); } };
+  view.querySelectorAll("[data-k]").forEach(inp => inp.onchange = () => save({ [inp.dataset.k]: inp.value.trim() === "" ? null : inp.dataset.k === "commission_pct" ? Number(inp.value) : inp.value.trim() }));
+  $("#f-channels").onchange = e => save({ channels: e.target.value.split("\n").map(l => l.split("|").map(s => s.trim())).filter(a => a[0])
+    .map(([label, url, audience]) => ({ label, url: url || "", audience: audience || "" })) });
+  view.querySelectorAll("[data-item]").forEach(c => c.onchange = async () => { try { await api.updateRow("partner_items", c.dataset.item, { done_at: c.checked ? new Date().toISOString() : null }); route(); } catch (err) { toast(err.message); } });
+  view.querySelectorAll("[data-proof]").forEach(i => i.onchange = async () => { try { await api.updateRow("partner_items", i.dataset.proof, { proof_url: i.value.trim() || null }); route(); } catch (err) { toast(err.message); } });
+  view.querySelectorAll("form[data-add]").forEach(f => f.onsubmit = async e => { e.preventDefault();
+    try { await api.insertRow("partner_items", { partner_id: p.id, direction: f.dataset.add, item: f.item.value.trim(), due_at: f.due.value || null }); route(); } catch (err) { toast(err.message); } });
+  view.querySelectorAll("[data-payout]").forEach(b => b.onclick = async () => { try { await api.updateRow("referrals", b.dataset.payout, { paid_out_at: new Date().toISOString() }); route(); } catch (err) { toast(err.message); } });
+  $("#rf").onsubmit = async e => { e.preventDefault(); const email = $("#re").value.trim().toLowerCase(), amount = Number($("#ra").value);
+    const first = !p.refs.some(r => (r.email || "").toLowerCase() === email);
+    try { await api.insertRow("referrals", { id: "manual-" + crypto.randomUUID(), partner_id: p.id, source: "intro", email, amount, first_order: first,
+      commission: first ? Math.round(amount * Number(p.commission_pct)) / 100 : 0, paid_at: new Date($("#rd").value + "T12:00:00").toISOString() }); route(); } catch (err) { toast(err.message); } };
+}
+
 /* ---------------- founders, part 2: live outreach, today, funnel & money, leads (supabase/crm_live.sql) ----------------
    Instantly numbers come from the instantly-sync function every 10 min; the pipeline (Samples tab), today's follow-ups and
    Drive deliveries come from scripts/crm_sync.py every hour. */
@@ -733,6 +831,8 @@ async function todayPage() {
         <div class="card"><div class="sec-h"><h2>Samples due</h2></div>${list(["sample_due"], "No samples due today.")}</div>
       </div>
       <div class="stack">
+        <div class="card"><div class="sec-h"><h2>Payments to recover</h2><span class="small muted">failed in the last 7 days, not paid since</span></div>${list(["payment_failed"], "No failed payments.")}</div>
+        <div class="card"><div class="sec-h"><h2>Partners: due or overdue</h2><a class="small" href="#/partners">all partners →</a></div>${list(["partner"], "Nothing due for partners.")}</div>
         <div class="card"><div class="sec-h"><h2>To-dos due</h2><span class="small muted">${due.length} open</span></div>
           ${due.length ? `<div class="tlist">${due.map(n => noteRow(n, n.client_id ? "#/client/" + n.client_id : leadHref(n.lead_email))).join("")}</div>` : `<p class="small muted">No to-dos due. Add them from a lead or client page.</p>`}</div>
         <div class="card"><div class="sec-h"><h2>Paid work, last 30 days</h2><span class="small muted">Shorts bought vs files delivered since</span></div>
@@ -850,6 +950,8 @@ async function render() {
   else if (h === "#/team") await team();
   else if (h === "#/clients") await clients();
   else if (h.startsWith("#/client/")) await clientPage(h.slice(9));
+  else if (h === "#/partners") await partners();
+  else if (h.startsWith("#/partner/")) await partnerPage(h.slice(10));
   else if (h === "#/today") await todayPage();
   else if (h === "#/outreach") await outreach();
   else if (h === "#/funnel") await funnel();
