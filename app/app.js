@@ -725,7 +725,9 @@ const PRICE_Q = /\b(pric|cost|how much|rates?|packages?|plans?|budget|invoice|pa
 async function hotData() {
   const [pipe, th] = await Promise.all([api.live("pipeline"), api.recent("threads", "at", 21)]);
   const lastIn = {}, lastOut = {};
-  th.forEach(t => { const m = t.direction === "in" ? lastIn : lastOut; if (!m[t.lead_email] || t.at > m[t.lead_email].at) m[t.lead_email] = t; });
+  const AUTO_IN = /out of (the )?office|time away from work|\bOOO\b|auto(matic)?[- ]?reply|thank(s| you)( so much)? for (your (email|message)|reaching|contacting)|(have|has been) received|on (vacation|holiday|leave)|view (this email )?in (your )?browser|unsubscribe/i;
+  th.forEach(t => { if (t.direction === "in" && AUTO_IN.test(t.snippet || "")) return;
+    const m = t.direction === "in" ? lastIn : lastOut; if (!m[t.lead_email] || t.at > m[t.lead_email].at) m[t.lead_email] = t; });
   const now = Date.now();
   return pipe.filter(p => !p.paid && !/LOST|WON|DONE|SILENT/i.test(p.status || "")).map(p => {
     const li = lastIn[p.email], lo = lastOut[p.email], inAt = li ? Date.parse(li.at) : 0;
