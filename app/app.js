@@ -71,7 +71,12 @@ function SupabaseBackend(url, key) {
     async crmPayments() { return must(await sb.from("payments").select("*")).map(p => ({ ...p, paid_at: Date.parse(p.paid_at) })); },
     async crmDeliveries() { return must(await sb.from("deliveries").select("*")).map(d => ({ ...d, delivered_at: d.delivered_at ? Date.parse(d.delivered_at) : null })); },
     async updateClient(id, patch) { must(await sb.from("clients").update(patch).eq("id", id)); },
-    async live(table, order) { let q = sb.from(table).select("*"); if (order) q = q.order(order); return must(await q); },
+    async live(table, order) {      // pages past Supabase's 1,000-row cap (threads passed it 11-08)
+      const out = [];
+      for (let i = 0; ; i += 1000) { let q = sb.from(table).select("*"); if (order) q = q.order(order);
+        const rows = must(await q.range(i, i + 999)); out.push(...rows); if (rows.length < 1000) return out; } },
+    async recent(table, col, days) { const out = [], since = new Date(Date.now() - days * 864e5).toISOString();
+      for (let i = 0; ; i += 1000) { const rows = must(await sb.from(table).select("*").gte(col, since).order(col, { ascending: false }).range(i, i + 999)); out.push(...rows); if (rows.length < 1000) return out; } },
     async insertRow(table, row) { return must(await sb.from(table).insert(row).select().single()); },
     async updateRow(table, id, patch) { must(await sb.from(table).update(patch).eq("id", id)); },
     async crmNotes(col, val) { return must(await sb.from("crm_notes").select("*").eq(col, val).order("created_at", { ascending: false })); },
@@ -708,7 +713,7 @@ async function nowStrip() {
   const building = pipe.filter(p => stageOf(p) === "building");
   const pct = (v, t) => `<span class="pbar"><i style="width:${Math.min(100, Math.round(100 * v / t))}%"></i></span>`;
   return `<div class="grid kpis">
-    <a class="card kpi ${open.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${open.length} replies waiting · target 0</span></a>
+    <a class="card kpi ${att.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${att.filter(x => x.kind === "reply").length} replies waiting · target 0</span></a>
     <a class="card kpi" href="#/outreach"><span class="k-l">New leads emailed today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${fresh}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${pct(fresh, LEAD_TARGET)} ${queued.toLocaleString()} queued in Instantly</span></a>
     <a class="card kpi" href="#/outreach"><span class="k-l">Follow-ups sent today</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fu}<small class="muted"> / ${FU_TARGET}</small></span><span class="k-s">${pct(fu, FU_TARGET)} ${sent} emails in total</span></a>
     <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).join(", ") : "none right now"}</span></a>
@@ -718,7 +723,7 @@ async function nowStrip() {
 /* HOT LEADS (Simas 11-08 "more focus on the hot leads"): unpaid leads with a live buying signal, hottest first. */
 const PRICE_Q = /\b(pric|cost|how much|rates?|packages?|plans?|budget|invoice|pay|link|start|sign ?up|book|call)/i;
 async function hotData() {
-  const [pipe, th, rq] = await Promise.all(["pipeline", "threads", "reply_queue"].map(t => api.live(t)));
+  const [pipe, th] = await Promise.all([api.live("pipeline"), api.recent("threads", "at", 21)]);
   const lastIn = {}, lastOut = {};
   th.forEach(t => { const m = t.direction === "in" ? lastIn : lastOut; if (!m[t.lead_email] || t.at > m[t.lead_email].at) m[t.lead_email] = t; });
   const now = Date.now();
@@ -754,7 +759,7 @@ async function hotPage() {
 }
 
 async function feed24h(clients, pay) {
-  const [th, pipe, adds, fus] = await Promise.all(["threads", "pipeline", "lead_adds", "fu_sends"].map(t => api.live(t)));
+  const [th, pipe, adds, fus] = await Promise.all([api.recent("threads", "at", 2), ...["pipeline", "lead_adds", "fu_sends"].map(t => api.live(t))]);
   const since = Date.now() - 864e5, nameOf = e => (pipe.find(p => p.email === e) || {}).name || e;
   const ev = [];
   pay.filter(p => !p.refunded && p.paid_at >= since).forEach(p => ev.push([p.paid_at, "paid", `<b>${esc((clients.find(c => c.id === p.client_id) || {}).name || p.payer_name || "Someone")}</b> paid ${money(p.amount)}${p.package ? " · " + esc(p.package) : ""}`, p.client_id ? "#/client/" + p.client_id : "#/clients"]));
@@ -976,7 +981,7 @@ async function leads() {
 }
 
 async function convoCard(email) {
-  const [th, fus] = await Promise.all([api.live("threads"), api.live("fu_sends")]);
+  const [th, fus] = await Promise.all([api.recent("threads", "at", 30), api.live("fu_sends")]);
   const mine = th.filter(t => t.lead_email === email).sort((a, b) => b.at.localeCompare(a.at)), fu = fus.filter(f => f.lead_email === email);
   return `<div class="card"><div class="sec-h"><h2>Conversation</h2><span class="small muted">last 14 days · ${fu.length} hot-lead follow-up${fu.length === 1 ? "" : "s"} sent</span></div>
     ${mine.length ? `<div class="tlist">${mine.slice(0, 12).map(t => `<div class="trow msg ${t.direction}"><span><b>${t.direction === "in" ? "They wrote" : "We sent · " + esc((t.inbox || "").split("@")[0])}</b><span class="small">${esc(t.snippet || "")}</span></span>
