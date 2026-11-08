@@ -225,12 +225,11 @@ function authView(mode = "signup") {
 
 function packCards() {
   return CFG.packs.map(p => `
-    <div class="card pack ${p.best ? "best" : ""}">${p.best ? `<span class="tag">Best value</span>` : ""}
+    <div class="card pack ${p.best ? "best" : ""}">${p.best ? `<span class="tag">Most popular</span>` : ""}
       <h3>${esc(p.name)}</h3>
-      <div class="price">$${p.price}</div><div class="per">$${(p.price / p.videos).toFixed(0)} per Short</div>
-      <ul><li>${icon("check")}${p.videos} Short${p.videos > 1 ? "s" : ""} from your videos</li><li>${icon("check")}Back within 24 h</li>
-        <li>${icon("check")}Changes within 48 h</li><li>${icon("check")}2× views guarantee <a href="../terms.html" class="small" style="color:inherit;opacity:.7">terms</a></li></ul>
-      <button class="btn ${p.best ? "btn-gold" : "btn-line"} btn-block" data-buy="${p.id}">Get ${p.videos > 1 ? p.videos + " Shorts" : "1 Short"}</button>
+      <div class="price">$${p.price}${p.monthly ? `<small class="muted" style="font-size:.45em"> / month</small>` : ""}</div><div class="per">$${(p.price / p.videos).toFixed(0)} per Short</div>
+      <ul>${(p.perks || [`${p.videos} Short${p.videos > 1 ? "s" : ""} from your videos`, "Back within 24 h", "Changes within 48 h"]).map(x => `<li>${icon("check")}${esc(x)}</li>`).join("")}</ul>
+      <button class="btn ${p.best ? "btn-gold" : "btn-line"} btn-block" data-buy="${p.id}">${p.monthly ? "Start " + esc(p.name) : "Get " + p.videos + " Shorts"}</button>
     </div>`).join("");
 }
 function bindBuy(root, after) {
@@ -322,7 +321,7 @@ async function celebrate(v) {
         <p>"${esc(v.title)}" is yours. Download it from its page any time.</p>
         <div class="ghosts">${[1, 2, 3].map(i => `<div class="ghost"><span>Next Short</span></div>`).join("")}</div>
         <div class="row" style="justify-content:center">${W.left ? `<a class="btn btn-gold" href="#/new" data-close>${icon("plus")}Start the next one</a><span class="small" style="color:#9EA292">${W.left} left in your pack</span>`
-          : `<button class="btn btn-gold" data-buy="short_5">Next 5 Shorts · $75</button><a class="btn btn-ghost" href="#/packs" data-close>See all packs</a>`}</div>
+          : `<button class="btn btn-gold" data-buy="short_5_150">Next 5 Shorts · $150</button><a class="btn btn-ghost" href="#/packs" data-close>See all packs</a>`}</div>
         <button class="linkish pm-skip" data-close>Back to my studio</button></div>
     </div>`);
   bindBuy(o, () => { o.remove(); route(); });
@@ -390,7 +389,7 @@ async function videoPage(id) {
             <p class="row" style="margin:12px 0 0"><button class="btn btn-line btn-sm">Add change</button><button type="button" class="btn btn-dark btn-sm" id="sendrev">Send changes to editor</button></p></form>` : ""}
         </div>` : ""}
       ${v.status === "approved" ? `<div class="card upsell"><h2>Make it a series</h2><p class="small" style="margin:6px 0 16px">${W.left && mine ? `You have ${W.left} Short${W.left === 1 ? "" : "s"} left. Keep the momentum going.` : "Your next 5 Shorts, each back within 24 h."}</p>
-        ${W.left && mine ? `<a class="btn btn-gold" href="#/new">Start the next one</a>` : `<button class="btn btn-gold" data-buy="short_5">Next 5 Shorts · $75</button>`}
+        ${W.left && mine ? `<a class="btn btn-gold" href="#/new">Start the next one</a>` : `<button class="btn btn-gold" data-buy="short_5_150">Next 5 Shorts · $150</button>`}
         ${url ? ` <a class="btn btn-ghost" href="${esc(url)}" download>Download</a>` : ""}</div>` : ""}
       <div class="card"><div class="sec-h" style="margin-bottom:10px"><h2>Changes</h2></div>
         ${notes.length ? `<ul class="notes">${notes.map(n => `<li><button class="tsbtn" data-t="${n.at}">${fmtTime(n.at)}</button><span>${esc(n.text)}</span></li>`).join("")}</ul>` : `<p class="small muted" style="margin:0">No changes requested.</p>`}</div>
@@ -466,14 +465,21 @@ async function team() {
   const row = (v, right) => `<a class="trow" href="#/v/${v.id}"><span><b>${esc(v.title)}</b><span class="small muted">${esc(who(v.user_id).name || "")}</span></span><span class="row">${chip(v.status)}<span class="small muted">${right}</span></span></a>`;
   const recent = ok.slice().sort((a, b) => b.paid_at - a.paid_at).slice(0, 6);
   const strip = api.live ? await nowStrip() : "", feed = api.live ? await feed24h(clients, pay) : "";
-  view.innerHTML = head("Overview", `Founders only · ${today()}`) + strip + `
+  const hot = api.live ? await hotData() : [];
+  const wk = new Date(); wk.setHours(0, 0, 0, 0); wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7));
+  const revW = ok.filter(x => x.paid_at >= +wk).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const mrr = ok.filter(x => x.paid_at >= Date.now() - 31 * 864e5 && /^(monthly|dfy)_/.test(x.package || "")).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const GOAL = 10000;
+  view.innerHTML = head("Overview", `Founders only · ${today()} · everything important on one screen`) + `
     <div class="grid kpis">
-      <div class="card kpi hero"><span class="k-l">Revenue, all time</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(rev)}</span><span class="k-s">${money(revM)} this month · Stripe</span></div>
-      <a class="card kpi" href="#/clients"><span class="k-l">Paying clients</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v" data-count="${clients.filter(c => c.paid).length}">0</span><span class="k-s">${clients.filter(c => c.paid && Date.now() - c.last < 30 * 864e5).length} active in 30 days</span></a>
-      <a class="card kpi" href="#/admin"><span class="k-l">Waiting on us</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v" data-count="${waitingUs.length}">0</span><span class="k-s">portal orders to edit or fix</span></a>
-      <div class="card kpi"><span class="k-l">Videos delivered</span><span class="k-ic t-green">${icon("check")}</span><span class="k-v" data-count="${clients.reduce((s, c) => s + c.shorts, 0)}">0</span><span class="k-s">Drive + portal, all clients</span></div>
+      <div class="card kpi hero"><span class="k-l">Revenue this week</span><span class="k-ic">${icon("bolt")}</span><span class="k-v">${money(revW)}<small class="muted"> / ${money(GOAL)}</small></span><span class="k-s"><span class="pbar"><i style="width:${Math.min(100, Math.round(100 * revW / GOAL))}%"></i></span> goal $10k a week</span></div>
+      <div class="card kpi"><span class="k-l">This month</span><span class="k-ic t-gold">${icon("star")}</span><span class="k-v">${money(revM)}</span><span class="k-s">${money(rev)} all time · Stripe</span></div>
+      <div class="card kpi"><span class="k-l">Monthly plans (MRR)</span><span class="k-ic t-green">${icon("up")}</span><span class="k-v">${money(mrr)}</span><span class="k-s">plans paid in the last 31 days</span></div>
+      <a class="card kpi" href="#/clients"><span class="k-l">Paying clients</span><span class="k-ic t-violet">${icon("check")}</span><span class="k-v" data-count="${clients.filter(c => c.paid).length}">0</span><span class="k-s">${clients.filter(c => c.paid && Date.now() - c.last < 30 * 864e5).length} active in 30 days</span></a>
     </div>
-    <div class="grid two">
+    ${strip}
+    <div class="card hotcard" style="margin-top:16px"><div class="sec-h"><h2>🔥 Hot leads</h2><span class="small muted">${hot.filter(x => x.waiting).length} waiting for us · <a href="#/hot">all ${hot.length} →</a></span></div>${hotRows(hot.slice(0, 10))}</div>
+    <div class="grid two" style="margin-top:16px">
       <div class="card"><div class="sec-h"><h2>Latest payments</h2><a href="#/clients">All clients →</a></div>
         ${recent.length ? `<div class="tlist">${recent.map(p => { const c = clients.find(x => x.id === p.client_id) || {}; return `<a class="trow" href="#/client/${c.id}"><span><b>${esc(c.name || p.payer_name || "Unknown")}</b><span class="small muted">${shortDate(p.paid_at)}${p.package ? " · " + esc(p.package) : ""}</span></span><span class="mono">${money(p.amount)}</span></a>`; }).join("")}</div>` : `<p class="small muted">No payments yet.</p>`}</div>
       <div class="card"><div class="sec-h"><h2>Waiting</h2></div>
@@ -683,10 +689,10 @@ function bindNotes(base) {
 }
 
 /* ---------------- founders, part 3: the questions Benas and Simas ask Claude most (10-21, from 2,000+ of their messages) ----------------
-   replies waiting · samples by stage and builder · leads added vs 150 · the last 24 hours · each lead's conversation */
+   replies waiting · samples by stage and builder · leads + follow-ups vs 300/300 · the last 24 hours · each lead's conversation */
 const SIMAS_INBOXES = ["simas@bejucreative.com", "simon@bejucreative.org", "studio@bejucreative.org", "editor@bejucreative.org", "team@bejucreative.com"];
 const ownerOf = inbox => !inbox ? "" : SIMAS_INBOXES.includes(inbox.toLowerCase()) ? "Simas" : "Benas";
-const LEAD_TARGET = 150;
+const LEAD_TARGET = 300, FU_TARGET = 300;   // Simas 11-08: 300 new leads + 300 follow-ups a day
 const minsAgo = t => { const m = Math.round((Date.now() - Date.parse(t)) / 6e4); return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d`; };
 const stageOf = p => { const s = (p.status || "").toUpperCase();
   return p.paid || /WON|DONE/.test(s) ? "paid" : /LOST/.test(s) ? "lost" : p.delivered_at ? (/HOT|REPLIED|BRIEF/.test(s) ? "talking" : "delivered") : p.yes_at ? "building" : "asked"; };
@@ -694,18 +700,57 @@ const STAGES = [["building", "Building"], ["delivered", "Delivered, waiting"], [
 const sideOf = b => /benas/i.test(b || "") ? "Benas" : /simas|video-creator/i.test(b || "") ? "Simas" : "";
 
 async function nowStrip() {
-  const [rq, pipe, adds, fus, items, camps, daily] = await Promise.all(["reply_queue", "pipeline", "lead_adds", "fu_sends", "today_items", "campaign_live", "campaign_daily"].map(t => api.live(t)));
+  const [rq, pipe, camps, daily, att] = await Promise.all(["reply_queue", "pipeline", "campaign_live", "campaign_daily", "needs_attention"].map(t => api.live(t)));
   const d0 = localDay(), open = rq.filter(r => r.kind === "REAL" && !r.answered && !r.blocklisted);
-  const added = adds.filter(a => a.day === d0).reduce((s, a) => s + a.n, 0);
+  const today = daily.filter(x => x.day === d0);
+  const sent = today.reduce((s, x) => s + (x.sent || 0), 0), fresh = today.reduce((s, x) => s + (x.new_leads || 0), 0), fu = Math.max(0, sent - fresh);
+  const queued = camps.reduce((s, c) => s + (c.uncontacted || 0), 0);
   const building = pipe.filter(p => stageOf(p) === "building");
-  const fuToday = fus.filter(f => localDay(new Date(f.sent_at)) === d0).length, fuQueued = items.filter(i => i.kind === "followup").length;
-  const e1 = daily.filter(x => x.day === d0).reduce((s, x) => s + (x.new_leads || 0), 0);
+  const pct = (v, t) => `<span class="pbar"><i style="width:${Math.min(100, Math.round(100 * v / t))}%"></i></span>`;
   return `<div class="grid kpis">
-    <a class="card kpi ${open.length ? "alert" : ""}" href="#/replies"><span class="k-l">Replies waiting</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${open.length}">0</span><span class="k-s">${open.length ? `oldest ${minsAgo(open.reduce((a, b) => a.received_at < b.received_at ? a : b).received_at)} · ${open.filter(r => ownerOf(r.inbox) === "Simas").length} Simas · ${open.filter(r => ownerOf(r.inbox) === "Benas").length} Benas` : "everything is answered"}</span></a>
-    <a class="card kpi" href="#/outreach"><span class="k-l">New leads added today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${added}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${e1} first emails sent today · ${camps.reduce((s, c) => s + (c.uncontacted || 0), 0)} in the queue</span></a>
-    <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).slice(0, 3).join(", ") : "nothing in production"}</span></a>
-    <a class="card kpi" href="#/today"><span class="k-l">Hot-lead follow-ups</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fuToday}<small class="muted"> sent</small></span><span class="k-s">${fuQueued} more queued for 16:00</span></a>
+    <a class="card kpi ${open.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${open.length} replies waiting · target 0</span></a>
+    <a class="card kpi" href="#/outreach"><span class="k-l">New leads emailed today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${fresh}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${pct(fresh, LEAD_TARGET)} ${queued.toLocaleString()} queued in Instantly</span></a>
+    <a class="card kpi" href="#/outreach"><span class="k-l">Follow-ups sent today</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fu}<small class="muted"> / ${FU_TARGET}</small></span><span class="k-s">${pct(fu, FU_TARGET)} ${sent} emails in total</span></a>
+    <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).join(", ") : "none right now"}</span></a>
   </div>`;
+}
+
+/* HOT LEADS (Simas 11-08 "more focus on the hot leads"): unpaid leads with a live buying signal, hottest first. */
+const PRICE_Q = /\b(pric|cost|how much|rates?|packages?|plans?|budget|invoice|pay|link|start|sign ?up|book|call)/i;
+async function hotData() {
+  const [pipe, th, rq] = await Promise.all(["pipeline", "threads", "reply_queue"].map(t => api.live(t)));
+  const lastIn = {}, lastOut = {};
+  th.forEach(t => { const m = t.direction === "in" ? lastIn : lastOut; if (!m[t.lead_email] || t.at > m[t.lead_email].at) m[t.lead_email] = t; });
+  const now = Date.now();
+  return pipe.filter(p => !p.paid && !/LOST|WON|DONE|SILENT/i.test(p.status || "")).map(p => {
+    const li = lastIn[p.email], lo = lastOut[p.email], inAt = li ? Date.parse(li.at) : 0;
+    const why = [];
+    let heat = 0;
+    if (/HOT/i.test(p.status || "")) { heat += 3; why.push("marked hot"); }
+    if (li && PRICE_Q.test(li.snippet || "")) { heat += 3; why.push("asked about price / next step"); }
+    if (li && p.delivered_at && li.at > p.delivered_at) { heat += 2; why.push("replied after the sample"); }
+    if (inAt && now - inAt < 3 * 864e5) { heat += 1; why.push("wrote in the last 3 days"); }
+    const waiting = li && (!lo || lo.at < li.at);
+    if (waiting) heat += 2;
+    return { p, li, lo, heat, why, waiting };
+  }).filter(x => x.heat >= 3).sort((a, b) => b.waiting - a.waiting || b.heat - a.heat || String(b.li?.at || "").localeCompare(String(a.li?.at || "")));
+}
+function hotRows(xs) {
+  const vil = t => t ? new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
+  return xs.length ? `<div class="tlist">${xs.map(({ p, li, why, waiting }) => {
+    const overdue = p.next_action_at && Date.parse(p.next_action_at) < Date.now();
+    return `<a class="trow hot" href="${leadHref(p.email)}"><span><b>${esc(p.name || p.email)}</b> <span class="small muted">${esc(p.show || "")}</span>
+      <span class="small">${li ? `“${esc((li.snippet || "").slice(0, 150))}” <span class="muted">· ${minsAgo(li.at)} ago</span>` : `<span class="muted">${esc(p.notes || "").slice(0, 120)}</span>`}</span>
+      <span class="small muted">${esc(why.join(" · "))} · next: ${esc((p.next_action || "none").slice(0, 90))}${p.next_action_at ? " @ " + vil(p.next_action_at) : ""}</span></span>
+      <span class="row" style="flex:none">${waiting ? `<span class="chip st-lost">waiting for us</span>` : overdue ? `<span class="chip st-revision">step overdue</span>` : ""}<span class="chip ${ownerOf(p.inbox) === "Simas" ? "st-received" : "st-editing"}">${ownerOf(p.inbox) || p.owner || "?"}</span>${p.status ? pipeChip(p.status) : ""}</span></a>`; }).join("")}</div>`
+    : `<p class="small muted">No hot leads right now.</p>`;
+}
+async function hotPage() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const xs = await hotData();
+  view.innerHTML = head("Hot leads", `Unpaid leads with a buying signal, hottest first · ${xs.filter(x => x.waiting).length} waiting for our answer`) +
+    `<div class="card">${hotRows(xs)}</div>`;
 }
 
 async function feed24h(clients, pay) {
@@ -985,6 +1030,7 @@ async function render() {
   else if (h.startsWith("#/partner/")) await partnerPage(h.slice(10));
   else if (h === "#/today") await todayPage();
   else if (h === "#/attention") await attentionPage();
+  else if (h === "#/hot") await hotPage();
   else if (h === "#/outreach") await outreach();
   else if (h === "#/funnel") await funnel();
   else if (h === "#/leads") await leads();

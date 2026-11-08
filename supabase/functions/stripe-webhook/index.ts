@@ -49,7 +49,10 @@ Deno.serve(async (req) => {
   let uid: string | null = s.client_reference_id && UUID.test(s.client_reference_id) ? s.client_reference_id : null;
   if (uid && !(await sb.from("profiles").select("id").eq("id", uid).limit(1)).data?.length) uid = null;
   if (!uid && email) uid = (await sb.from("profiles").select("id").eq("email", email).limit(1)).data?.[0]?.id ?? null;
-  const m = /^short_(\d+)$/.exec(pkg);
+  // 11-08: new menu packages carry the price (short_5_150) and monthly plans give a month of Shorts
+  const PLAN: Record<string, number> = { monthly_growth_300: 15, monthly_eod_300: 15, monthly_daily_400: 30, monthly_daily_500: 30, monthly_2day_600: 60, dfy_daily_600: 30, dfy_max_growth_1000: 60 };
+  const sm = /^short_(\d+)(?:_\d+)?$/.exec(pkg), n = sm ? Number(sm[1]) : (PLAN[pkg] ?? 0);
+  const m = n ? [pkg, String(n)] : null;
   if (uid && m) {
     await sb.from("purchases").upsert({ user_id: uid, pack_id: pkg, videos: Number(m[1]), amount: (s.amount_total ?? 0) / 100, stripe_session: s.id },
                                       { onConflict: "stripe_session" });
