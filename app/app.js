@@ -811,12 +811,12 @@ async function attentionPage() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
   const [q, pr, st] = await Promise.all([api.live("needs_attention", "due_at"), api.live("promises", "due_at"), api.live("sync_status")]);
-  const LABEL = { reply: "Reply waiting", promise: "Promise past due", overdue: "Next action overdue", no_next: "No next action" };
-  const ORDER = ["reply", "promise", "overdue", "no_next"];
+  const LABEL = { reply: "Reply waiting", promise: "Promise past due", overdue: "Next action overdue", no_next: "No next action", paid_waiting: "Paid, nothing delivered", brief: "Yes, no brief form" };
+  const ORDER = ["reply", "promise", "paid_waiting", "brief", "overdue", "no_next"];
   const n = k => q.filter(x => x.kind === k).length;
   const openPr = pr.filter(x => x.status === "open");
   const when = t => t ? new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
-  const side = who => { const xs = q.filter(x => (x.owner || (ownerOf(x.inbox || "") )) === who).sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || String(a.due_at || "").localeCompare(String(b.due_at || "")));
+  const side = who => { const xs = q.filter(x => x.kind !== "paid_waiting" && (x.owner || ownerOf(x.inbox || "") || "Simas") === who).sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind) || String(a.due_at || "").localeCompare(String(b.due_at || "")));
     return xs.length ? `<div class="tlist">${xs.map(x => `<a class="trow" href="${leadHref(x.lead_email)}"><span><b>${esc(x.name || x.lead_email)}</b><span class="small muted">${esc((x.detail || "").slice(0, 140))}</span></span>
       <span class="row" style="flex:none"><span class="chip ${x.kind === "reply" || x.kind === "promise" ? "st-lost" : "st-editing"}">${LABEL[x.kind]}</span><span class="small muted mono">${when(x.due_at)}</span></span></a>`).join("")}</div>` : `<p class="small muted">Nothing needs ${who}'s side. Clear.</p>`; };
   const kpi = (label, v, sub, hero) => `<div class="card kpi ${v ? "alert" : ""} ${hero ? "hero" : ""}"><span class="k-l">${label}</span><span class="k-ic">${icon(v ? "bell" : "check")}</span><span class="k-v" data-count="${v}">0</span><span class="k-s">${sub}</span></div>`;
@@ -826,11 +826,14 @@ async function attentionPage() {
       ${kpi("No next action", n("no_next"), "open leads without a dated step")}
       ${kpi("Overdue next actions", n("overdue"), "date has passed")}
       ${kpi("Promises past due", n("promise"), `${openPr.length} open promises in total`)}
+      ${kpi("Paid, nothing delivered", n("paid_waiting"), "paid 48h+ ago, last 10 days")}
     </div>
     <div class="grid two">
       <div class="card"><div class="sec-h"><h2>Simas's side</h2><span class="small muted">simas@ · team@ · editor@ · simon@ · studio@</span></div>${side("Simas")}</div>
       <div class="card"><div class="sec-h"><h2>Benas's side</h2><span class="small muted">ben@ · hello@ · official@ · benas@ · info@</span></div>${side("Benas")}</div>
     </div>
+    <div class="card" style="margin-top:16px"><div class="sec-h"><h2>Paying clients waiting</h2><span class="small muted">paid 48h+ ago, no delivery we can see</span></div>
+      ${(() => { const xs = q.filter(x => x.kind === "paid_waiting"); return xs.length ? `<div class="tlist">${xs.map(x => `<a class="trow" href="${leadHref(x.lead_email)}"><span><b>${esc(x.name || x.lead_email)}</b><span class="small muted">${esc(x.detail || "")}</span></span><span class="small muted mono">${when(x.due_at)}</span></a>`).join("")}</div>` : `<p class="small muted">Every recent payment has a delivery.</p>`; })()}</div>
     <div class="card" style="margin-top:16px"><div class="sec-h"><h2>Open promises</h2><span class="small muted">sales follow-ups and upsells wait until these are kept</span></div>
       ${openPr.length ? `<div class="tlist">${openPr.map(x => `<a class="trow" href="${leadHref(x.lead_email)}"><span><b>${esc(x.lead_email)}</b><span class="small muted">${esc(x.promise)}</span></span><span class="row" style="flex:none"><span class="chip">${esc(x.owner)}</span><span class="small muted mono">${when(x.due_at)}</span></span></a>`).join("")}</div>` : `<p class="small muted">No open promises.</p>`}</div>`;
 }
