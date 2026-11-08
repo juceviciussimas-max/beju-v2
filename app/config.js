@@ -7,7 +7,7 @@ window.BEJU_CONFIG = {
   // and the stripe-webhook function turns the payment into credits on that account.
   packs: [   // 11-08: current menu (Simas 11-04 price rule: monthly plans first, $150 Starter for "no budget")
     { id: "short_5_150", name: "Starter", videos: 5, price: 150, link: "https://buy.stripe.com/00w8wP9n47AEgpU7YC5EY0S" },
-    { id: "monthly_daily_400", name: "Daily Reels", videos: 30, price: 400, monthly: true, link: "https://buy.stripe.com/aFa00j42K7AEa1wfr45EY0M", best: true,
+    { id: "monthly_daily_500", name: "Daily Reels", videos: 30, price: 500, monthly: true, link: "https://buy.stripe.com/6oU7sL56O2gk2z4en05EY0U", best: true,   // Simas 11-08: daily = $500 for new leads
       perks: ["A new Short every day (30 a month)", "You post them", "Changes within 48 h"] },
     { id: "dfy_daily_600", name: "Done For You", videos: 30, price: 600, monthly: true, link: "https://buy.stripe.com/3cI00jar87AE5Lgfr45EY0X",
       perks: ["A Reel every day", "We post them for you", "Captions + hashtags handled"] },
