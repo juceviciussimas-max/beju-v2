@@ -49,11 +49,12 @@ async function samples() {
 
 // --- Instantly mail (20 req/min shared with the reply watchers: page at most ~12 times per run)
 async function ig(path: string) {
+  await new Promise(r => setTimeout(r, 3000));       // spread calls: 20/min is shared with both reply watchers
   const r = await fetch("https://api.instantly.ai/api/v2" + path, { headers: { Authorization: `Bearer ${IKEY}` } });
   if (!r.ok) throw new Error(`Instantly ${r.status} ${path.split("?")[0]}`);
   return r.json();
 }
-async function mailSince(type: string, since: string, maxPages = 6) {
+async function mailSince(type: string, since: string, maxPages = 3) {
   const out: any[] = []; let cur = "";
   for (let p = 0; p < maxPages; p++) {
     const d = await ig(`/emails?email_type=${type}&limit=100${cur ? `&starting_after=${cur}` : ""}`);
@@ -92,7 +93,7 @@ async function replies(pipeEmails: Set<string>) {
                  blocklisted: !!(p && p.blocklisted), snippet: s.slice(0, 300), synced_at: new Date().toISOString() });
   }
   // still unsure: look at up to 8 real threads directly (Instantly rate limit is shared)
-  for (const q of queue.filter(q => q.kind === "REAL" && !q.answered).slice(0, 8)) {
+  for (const q of queue.filter(q => q.kind === "REAL" && !q.answered).slice(0, 4)) {
     try {
       const d = await ig(`/emails?lead=${encodeURIComponent(q.lead_email)}&limit=10`);
       if ((d.items || []).some((m: any) => (m.from_address_email || "").toLowerCase() !== q.lead_email && m.timestamp_email > q.received_at)) q.answered = true;
