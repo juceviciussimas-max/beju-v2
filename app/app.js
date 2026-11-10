@@ -723,7 +723,8 @@ async function nowStrip() {
 /* HOT LEADS (Simas 11-08 "more focus on the hot leads"): unpaid leads with a live buying signal, hottest first. */
 const PRICE_Q = /\b(pric|cost|how much|rates?|packages?|plans?|budget|invoice|pay|link|start|sign ?up|book|call)/i;
 async function hotData() {
-  const [pipe, th] = await Promise.all([api.live("pipeline"), api.recent("threads", "at", 21)]);
+  const [pipe, th, cn] = await Promise.all([api.live("pipeline"), api.recent("threads", "at", 21), api.live("client_notes")]);
+  const prefOf = {}; cn.forEach(n => { if (n.kind !== "fact" && n.kind !== "price") (prefOf[n.lead_email] = prefOf[n.lead_email] || []).push(n.note); });
   const lastIn = {}, lastOut = {};
   const AUTO_IN = /out of (the )?office|time away from work|\bOOO\b|auto(matic)?[- ]?reply|thank(s| you)( so much)? for (your (email|message)|reaching|contacting)|(have|has been) received|on (vacation|holiday|leave)|view (this email )?in (your )?browser|unsubscribe/i;
   th.forEach(t => { if (t.direction === "in" && AUTO_IN.test(t.snippet || "")) return;
@@ -739,15 +740,16 @@ async function hotData() {
     if (inAt && now - inAt < 3 * 864e5) { heat += 1; why.push("wrote in the last 3 days"); }
     const waiting = li && (!lo || lo.at < li.at);
     if (waiting) heat += 2;
-    return { p, li, lo, heat, why, waiting };
+    return { p, li, lo, heat, why, waiting, prefs: prefOf[p.email] || [] };
   }).filter(x => x.heat >= 3).sort((a, b) => b.waiting - a.waiting || b.heat - a.heat || String(b.li?.at || "").localeCompare(String(a.li?.at || "")));
 }
 function hotRows(xs) {
   const vil = t => t ? new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
-  return xs.length ? `<div class="tlist">${xs.map(({ p, li, why, waiting }) => {
+  return xs.length ? `<div class="tlist">${xs.map(({ p, li, why, waiting, prefs = [] }) => {
     const overdue = p.next_action_at && Date.parse(p.next_action_at) < Date.now();
     return `<a class="trow hot" href="${leadHref(p.email)}"><span><b>${esc(p.name || p.email)}</b> <span class="small muted">${esc(p.show || "")}</span>
       <span class="small">${li ? `“${esc((li.snippet || "").slice(0, 150))}” <span class="muted">· ${minsAgo(li.at)} ago</span>` : `<span class="muted">${esc(p.notes || "").slice(0, 120)}</span>`}</span>
+      ${prefs.length ? `<span class="small" style="color:var(--ink)">Wants: ${esc(prefs.join(" · ").slice(0, 220))}</span>` : ""}
       <span class="small muted">${esc(why.join(" · "))} · next: ${esc((p.next_action || "none").slice(0, 90))}${p.next_action_at ? " @ " + vil(p.next_action_at) : ""}</span></span>
       <span class="row" style="flex:none">${waiting ? `<span class="chip st-lost">waiting for us</span>` : overdue ? `<span class="chip st-revision">step overdue</span>` : ""}<span class="chip ${ownerOf(p.inbox) === "Simas" ? "st-received" : "st-editing"}">${ownerOf(p.inbox) || p.owner || "?"}</span>${p.status ? pipeChip(p.status) : ""}</span></a>`; }).join("")}</div>`
     : `<p class="small muted">No hot leads right now.</p>`;
@@ -990,11 +992,20 @@ async function convoCard(email) {
       <span class="small muted mono" style="flex:none">${new Date(t.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" })}</span></div>`).join("")}</div>` : `<p class="small muted">No emails in the last 14 days.</p>`}</div>`;
 }
 
+/* CLIENT PREFERENCES (Simas 11-10): what each lead likes / dislikes / asked for, noted after every reply (scripts/client_notes.py). */
+const PREF_KINDS = [["like", "Likes"], ["dislike", "Dislikes / worries"], ["ask", "Asked for"], ["price", "Price / deal"], ["fact", "Facts"]];
+function prefsCard(ns) {
+  return `<div class="card"><div class="sec-h"><h2>What they want</h2><span class="small muted">${ns.length} note${ns.length === 1 ? "" : "s"}</span></div>${ns.length
+    ? PREF_KINDS.filter(([k]) => ns.some(n => n.kind === k)).map(([k, l]) => `<p class="label" style="margin:12px 0 6px">${l}</p>${ns.filter(n => n.kind === k).map(n => `<p class="small" style="margin:0 0 6px">${esc(n.note)} <span class="muted">· ${shortDate(Date.parse(n.created_at))}</span></p>`).join("")}`).join("")
+    : `<p class="small muted" style="margin:0">No preferences noted yet. They are added after every reply.</p>`}</div>`;
+}
+
 async function leadPage(email) {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
   const p = (await api.live("pipeline")).find(x => x.email === email);
   if (!p) { view.innerHTML = `<a href="#/leads" class="back">← Leads</a><div class="card empty"><h3>Lead not found</h3></div>`; return; }
+  const prefs = (await api.live("client_notes")).filter(n => n.lead_email === email);
   const when = (l, t) => `<div class="mrow"><span>${l}</span><b class="mono">${t ? new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "—"}</b></div>`;
   view.innerHTML = `<a href="#/leads" class="back">← Leads</a>` + head(esc(p.name || p.email), `${esc(p.show || "")}${p.show ? " · " : ""}${esc(p.email)} · ${pipeChip(p.status)}`,
       `<div class="row">${linkOut(p.drive_link, "Sample ↗")}</div>`) + `
@@ -1006,7 +1017,7 @@ async function leadPage(email) {
         <div class="card"><div class="sec-h"><h2>Next action</h2><span class="small muted">${p.next_action_at ? shortDate(Date.parse(p.next_action_at)) : ""}</span></div><p style="margin:0">${esc(p.next_action || "—")}</p>
           ${p.notes ? `<p class="label" style="margin:16px 0 6px">Sheet notes</p><p class="small" style="margin:0;white-space:pre-wrap">${esc(p.notes)}</p>` : ""}</div>
       </div>
-      <div class="stack">${await convoCard(p.email)}${await notesCard("lead_email", p.email)}</div>
+      <div class="stack">${prefsCard(prefs)}${await convoCard(p.email)}${await notesCard("lead_email", p.email)}</div>
     </div>`;
   bindNotes({ lead_email: p.email });
 }
