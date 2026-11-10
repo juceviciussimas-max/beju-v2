@@ -762,6 +762,73 @@ async function hotPage() {
     `<div class="card">${hotRows(xs)}</div>`;
 }
 
+/* FOLLOW-UPS DUE (Simas 11-10: "we need to know when to follow up"). Each warm lead has a stage + day 0 (when the ball
+   went into their court), set after every reply (crm.set_stage). We count OUR emails since day 0 from the threads and
+   say who is due today, which touch it is and what it should do. Any reply from them takes the lead out of the cadence. */
+const FU = {
+  asked_price: { label: "Asked the price, then quiet", from: "price sent", days: [2, 7, 14], park: 45,
+    touch: ["One new idea from their content, same link", "Answer the likely worry (commitment or proof)", "Close the file: “should I close this for now?”"] },
+  sample_sent: { label: "Got the sample, no reply", from: "sample sent", days: [1, 3, 7, 14], park: 45,
+    touch: ["Check the link opened, one line on why that moment", "One new idea from a recent video", "Another channel if we have one (Instagram DM)", "Close the file: “should I close this for now?”"] },
+  said_yes: { label: "Said yes, then quiet", from: "their yes", days: [1, 3, 6, 10], park: 30,
+    touch: ["Resend the link, “type the card by hand if it fails”", "What happens right after payment", "Ask what is blocking them", "Close the file: “should I close this for now?”"] },
+  thinking: { label: "Thinking / not now", from: "the date they gave", days: [0, 7], park: 30,
+    touch: ["Check in on the date they named, one new idea", "Last gentle note, then park"] },
+  parked: { label: "Parked, time to re-engage", from: "re-engage date", days: [0], park: 60, touch: ["A fresh idea from their newest content, no pressure"] },
+};
+const addBiz = (t, n) => { const d = new Date(t); while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n--; } return d; };
+async function dueData() {
+  const [pipe, th, cn] = await Promise.all([api.live("pipeline"), api.recent("threads", "at", 75), api.live("client_notes")]);
+  const AUTO_IN = /out of (the )?office|time away from work|\bOOO\b|auto(matic)?[- ]?reply|(have|has been) received|on (vacation|holiday|leave)|view (this email )?in (your )?browser|unsubscribe/i;
+  const by = {}; th.forEach(t => (by[t.lead_email] = by[t.lead_email] || []).push(t));
+  const prefOf = {}; cn.forEach(n => { if (n.kind !== "fact" && n.kind !== "price") (prefOf[n.lead_email] = prefOf[n.lead_email] || []).push(n.note); });
+  const endToday = new Date(localDay() + "T23:59:59"), now = Date.now(), out = { due: [], soon: [], replied: [], finished: [], unset: [] };
+  pipe.forEach(p => {
+    if (p.paid || /LOST|WON|DONE/i.test(p.status || "")) return;
+    const base = { p, prefs: prefOf[p.email] || [] };
+    const c = FU[p.fu_stage];
+    if (!c || !p.fu_day0) { if (/HOT|REPLIED|DELIVERED/i.test(p.status || "") && p.fu_stage !== "none") out.unset.push(base); return; }
+    const d0 = Date.parse(p.fu_day0), ms = (by[p.email] || []).filter(t => Date.parse(t.at) > d0 + 3e5);
+    const ins = ms.filter(t => t.direction === "in" && !AUTO_IN.test(t.snippet || "")), outs = ms.filter(t => t.direction === "out");
+    const lastOut = outs.reduce((m, t) => Math.max(m, Date.parse(t.at)), 0);
+    const row = { ...base, c, d0, done: outs.length, total: c.days.length, daysIn: Math.floor((now - d0) / 864e5) };
+    if (ins.length) { row.said = ins[ins.length - 1].snippet; return out.replied.push(row); }
+    if (outs.length >= c.days.length) { row.reengage = addBiz(d0, c.park); return out.finished.push(row); }
+    row.at = addBiz(d0, c.days[outs.length]); row.hint = c.touch[outs.length];
+    row.restToday = lastOut && now - lastOut < 20 * 36e5;                // never two touches inside a day
+    (row.at <= endToday && !row.restToday ? out.due : row.at - now < 7 * 864e5 ? out.soon : []).push(row);
+  });
+  out.due.sort((a, b) => a.at - b.at); out.soon.sort((a, b) => a.at - b.at);
+  return out;
+}
+function dueRows(xs, kind) {
+  const day = t => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Vilnius" });
+  return xs.length ? `<div class="tlist">${xs.map(x => { const { p, c } = x, late = kind === "due" && x.at < new Date(localDay() + "T00:00:00");
+    const line = kind === "unset" ? `No follow-up stage set yet · next: ${esc((p.next_action || "none").slice(0, 110))}`
+      : kind === "replied" ? `They wrote back: “${esc((x.said || "").slice(0, 150))}” → answer, then set the new stage`
+      : kind === "finished" ? `All ${x.total} touches sent, no reply → park; try again around ${day(x.reengage)}`
+      : `${esc(c.label)} · ${x.daysIn} d since ${c.from} · touch ${x.done + 1} of ${x.total}${kind === "soon" ? " · due " + day(x.at) : late ? " · was due " + day(x.at) : ""}`;
+    return `<a class="trow ${kind === "due" ? "hot" : ""}" href="${leadHref(p.email)}"><span><b>${esc(p.name || p.email)}</b> <span class="small muted">${esc(p.show || "")}</span>
+      <span class="small">${line}</span>
+      ${x.hint ? `<span class="small" style="color:var(--ink)">Do: ${esc(x.hint)}</span>` : ""}
+      ${p.fu_note ? `<span class="small muted">They said: “${esc(p.fu_note.slice(0, 160))}”</span>` : ""}
+      ${x.prefs.length ? `<span class="small muted">Wants: ${esc(x.prefs.join(" · ").slice(0, 200))}</span>` : ""}</span>
+      <span class="row" style="flex:none">${late ? `<span class="chip st-lost">late</span>` : ""}<span class="chip ${ownerOf(p.inbox) === "Simas" ? "st-received" : "st-editing"}">${ownerOf(p.inbox) || p.owner || "?"}</span>${p.status ? pipeChip(p.status) : ""}</span></a>`; }).join("")}</div>`
+    : `<p class="small muted">Nobody here.</p>`;
+}
+async function duePage() {
+  if (!ME.is_admin) { location.hash = "#/"; return; }
+  if (liveOnly()) return;
+  const d = await dueData(), sec = (title, sub, xs, kind) => `<div class="card" style="margin-top:16px"><div class="sec-h"><h2>${title}</h2><span class="small muted">${xs.length} · ${sub}</span></div>${dueRows(xs, kind)}</div>`;
+  view.innerHTML = head("Follow-ups", `Who to follow up today, and why · ${d.due.length} due now · ${d.replied.length} wrote back`) +
+    sec("Due today", "send these, one new angle each", d.due, "due") +
+    sec("They wrote back", "out of the cadence until answered", d.replied, "replied") +
+    sec("Coming up", "next 7 days, nothing to do yet", d.soon, "soon") +
+    sec("Cadence finished", "every touch sent, no reply", d.finished, "finished") +
+    sec("No stage set", "warm leads the cadence does not cover yet", d.unset, "unset");
+}
+
+
 async function feed24h(clients, pay) {
   const [th, pipe, adds, fus] = await Promise.all([api.recent("threads", "at", 2), ...["pipeline", "lead_adds", "fu_sends"].map(t => api.live(t))]);
   const since = Date.now() - 864e5, nameOf = e => (pipe.find(p => p.email === e) || {}).name || e;
@@ -1049,6 +1116,7 @@ async function render() {
   else if (h === "#/today") await todayPage();
   else if (h === "#/attention") await attentionPage();
   else if (h === "#/hot") await hotPage();
+  else if (h === "#/due") await duePage();
   else if (h === "#/outreach") await outreach();
   else if (h === "#/funnel") await funnel();
   else if (h === "#/leads") await leads();
