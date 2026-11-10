@@ -713,7 +713,7 @@ async function nowStrip() {
   const building = pipe.filter(p => stageOf(p) === "building");
   const pct = (v, t) => `<span class="pbar"><i style="width:${Math.min(100, Math.round(100 * v / t))}%"></i></span>`;
   return `<div class="grid kpis">
-    <a class="card kpi ${att.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${att.filter(x => x.kind === "reply").length} replies waiting · target 0</span></a>
+    <a class="card kpi ${att.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${att.filter(x => x.kind === "reply").length} replies waiting · ${att.filter(x => x.kind === "followup").length} follow-ups due · target 0</span></a>
     <a class="card kpi" href="#/outreach"><span class="k-l">New leads emailed today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${fresh}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${pct(fresh, LEAD_TARGET)} ${queued.toLocaleString()} queued in Instantly</span></a>
     <a class="card kpi" href="#/outreach"><span class="k-l">Follow-ups sent today</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fu}<small class="muted"> / ${FU_TARGET}</small></span><span class="k-s">${pct(fu, FU_TARGET)} ${sent} emails in total</span></a>
     <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).join(", ") : "none right now"}</span></a>
@@ -766,15 +766,15 @@ async function hotPage() {
    went into their court), set after every reply (crm.set_stage). We count OUR emails since day 0 from the threads and
    say who is due today, which touch it is and what it should do. Any reply from them takes the lead out of the cadence. */
 const FU = {   // BENAS RULE 11-09: no third follow-up. Two touches per stage, then park. (Research cadence had 3 to 4; founders decide.)
-  asked_price: { label: "Asked the price, then quiet", from: "price sent", days: [2, 7], park: 45,
+  asked_price: { label: "Asked the price, then quiet", from: "price sent", days: [2, 7], park: 30,
     touch: ["One new idea from their content, same link", "Last note: answer the likely worry (commitment or proof), then “should I close this for now?”"] },
-  sample_sent: { label: "Got the sample, no reply", from: "sample sent", days: [1, 4], park: 45,
+  sample_sent: { label: "Got the sample, no reply", from: "sample sent", days: [1, 4], park: 30,
     touch: ["Check the link opened, one line on why that moment", "Last note: one new idea from a recent video, then “should I close this for now?”"] },
-  said_yes: { label: "Said yes, then quiet", from: "their yes", days: [1, 3], park: 30,
+  said_yes: { label: "Said yes, then quiet", from: "their yes", days: [1, 3], park: 20,
     touch: ["Resend the link, “type the card by hand if it fails”", "Last note: ask what is blocking them"] },
-  thinking: { label: "Thinking / not now", from: "the date they gave", days: [0, 7], park: 30,
+  thinking: { label: "Thinking / not now", from: "the date they gave", days: [0, 7], park: 20,
     touch: ["Check in on the date they named, one new idea", "Last gentle note, then park"] },
-  parked: { label: "Parked, time to re-engage", from: "re-engage date", days: [0], park: 60, touch: ["A fresh idea from their newest content, no pressure"] },
+  parked: { label: "Parked, time to re-engage", from: "re-engage date", days: [0], park: 40, touch: ["A fresh idea from their newest content, no pressure"] },
 };
 const addBiz = (t, n) => { const d = new Date(t); while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n--; } return d; };
 async function dueData() {
@@ -932,8 +932,8 @@ async function attentionPage() {
   if (!ME.is_admin) { location.hash = "#/"; return; }
   if (liveOnly()) return;
   const [q, pr, st] = await Promise.all([api.live("needs_attention", "due_at"), api.live("promises", "due_at"), api.live("sync_status")]);
-  const LABEL = { reply: "Reply waiting", promise: "Promise past due", overdue: "Next action overdue", no_next: "No next action", paid_waiting: "Paid, nothing delivered", brief: "Yes, no brief form" };
-  const ORDER = ["reply", "promise", "paid_waiting", "brief", "overdue", "no_next"];
+  const LABEL = { reply: "Reply waiting", followup: "Follow-up due", promise: "Promise past due", overdue: "Next action overdue", no_next: "No next action", paid_waiting: "Paid, nothing delivered", brief: "Yes, no brief form", followup_done: "Both follow-ups sent: park" };
+  const ORDER = ["reply", "followup", "promise", "paid_waiting", "brief", "overdue", "followup_done", "no_next"];
   const n = k => q.filter(x => x.kind === k).length;
   const openPr = pr.filter(x => x.status === "open");
   const when = t => t ? new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Vilnius" }) : "";
@@ -944,6 +944,7 @@ async function attentionPage() {
   view.innerHTML = head("Needs attention", `The one queue. Target: every number at 0 · ${synced(st, "sheet")}`) + `
     <div class="grid kpis">
       ${kpi("Replies waiting", n("reply"), "real replies, not answered", true)}
+      ${kpi("Follow-ups due today", n("followup"), `max two per lead · <a href="#/due">open the list →</a>`)}
       ${kpi("No next action", n("no_next"), "open leads without a dated step")}
       ${kpi("Overdue next actions", n("overdue"), "date has passed")}
       ${kpi("Promises past due", n("promise"), `${openPr.length} open promises in total`)}
