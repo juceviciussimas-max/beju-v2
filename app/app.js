@@ -705,7 +705,9 @@ const STAGES = [["building", "Building"], ["delivered", "Delivered, waiting"], [
 const sideOf = b => /benas/i.test(b || "") ? "Benas" : /simas|video-creator/i.test(b || "") ? "Simas" : "";
 
 async function nowStrip() {
-  const [rq, pipe, camps, daily, att] = await Promise.all(["reply_queue", "pipeline", "campaign_live", "campaign_daily", "needs_attention"].map(t => api.live(t)));
+  const [rq, pipe, camps, daily, att, sync] = await Promise.all(["reply_queue", "pipeline", "campaign_live", "campaign_daily", "needs_attention", "sync_status"].map(t => api.live(t)));
+  // SIMAS RULE 11-05 / 11-10: new leads a day = half of the summed inbox limits (written daily by scripts/new_lead_target.py)
+  const tg = (sync.find(x => x.name === "new_lead_target") || {}).detail || "", LEAD_T = parseInt(tg) || LEAD_TARGET, possible = (tg.match(/possible (\d+)/) || [])[1];
   const d0 = localDay(), open = rq.filter(r => r.kind === "REAL" && !r.answered && !r.blocklisted);
   const today = daily.filter(x => x.day === d0);
   const sent = today.reduce((s, x) => s + (x.sent || 0), 0), fresh = today.reduce((s, x) => s + (x.new_leads || 0), 0), fu = Math.max(0, sent - fresh);
@@ -714,7 +716,7 @@ async function nowStrip() {
   const pct = (v, t) => `<span class="pbar"><i style="width:${Math.min(100, Math.round(100 * v / t))}%"></i></span>`;
   return `<div class="grid kpis">
     <a class="card kpi ${att.length ? "alert" : ""}" href="#/attention"><span class="k-l">Needs attention</span><span class="k-ic t-violet">${icon("bell")}</span><span class="k-v" data-count="${att.length}">0</span><span class="k-s">${att.filter(x => x.kind === "reply").length} replies waiting · ${att.filter(x => x.kind === "followup").length} follow-ups due · target 0</span></a>
-    <a class="card kpi" href="#/outreach"><span class="k-l">New leads emailed today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${fresh}<small class="muted"> / ${LEAD_TARGET}</small></span><span class="k-s">${pct(fresh, LEAD_TARGET)} ${queued.toLocaleString()} queued in Instantly</span></a>
+    <a class="card kpi" href="#/outreach"><span class="k-l">New leads emailed today</span><span class="k-ic t-gold">${icon("up")}</span><span class="k-v">${fresh}<small class="muted"> / ${LEAD_T}</small></span><span class="k-s">${pct(fresh, LEAD_T)} target = half of the inbox limits${possible ? ` · caps and queues allow ${possible}` : ""} · ${queued.toLocaleString()} queued</span></a>
     <a class="card kpi" href="#/outreach"><span class="k-l">Follow-ups sent today</span><span class="k-ic t-violet">${icon("clock")}</span><span class="k-v">${fu}<small class="muted"> / ${FU_TARGET}</small></span><span class="k-s">${pct(fu, FU_TARGET)} ${sent} emails in total</span></a>
     <a class="card kpi" href="#/samples"><span class="k-l">Samples building</span><span class="k-ic t-green">${icon("film")}</span><span class="k-v" data-count="${building.length}">0</span><span class="k-s">${building.length ? building.map(p => esc(p.name || p.email)).join(", ") : "none right now"}</span></a>
   </div>`;
