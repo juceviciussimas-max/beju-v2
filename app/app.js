@@ -765,13 +765,13 @@ async function hotPage() {
 /* FOLLOW-UPS DUE (Simas 11-10: "we need to know when to follow up"). Each warm lead has a stage + day 0 (when the ball
    went into their court), set after every reply (crm.set_stage). We count OUR emails since day 0 from the threads and
    say who is due today, which touch it is and what it should do. Any reply from them takes the lead out of the cadence. */
-const FU = {
-  asked_price: { label: "Asked the price, then quiet", from: "price sent", days: [2, 7, 14], park: 45,
-    touch: ["One new idea from their content, same link", "Answer the likely worry (commitment or proof)", "Close the file: “should I close this for now?”"] },
-  sample_sent: { label: "Got the sample, no reply", from: "sample sent", days: [1, 3, 7, 14], park: 45,
-    touch: ["Check the link opened, one line on why that moment", "One new idea from a recent video", "Another channel if we have one (Instagram DM)", "Close the file: “should I close this for now?”"] },
-  said_yes: { label: "Said yes, then quiet", from: "their yes", days: [1, 3, 6, 10], park: 30,
-    touch: ["Resend the link, “type the card by hand if it fails”", "What happens right after payment", "Ask what is blocking them", "Close the file: “should I close this for now?”"] },
+const FU = {   // BENAS RULE 11-09: no third follow-up. Two touches per stage, then park. (Research cadence had 3 to 4; founders decide.)
+  asked_price: { label: "Asked the price, then quiet", from: "price sent", days: [2, 7], park: 45,
+    touch: ["One new idea from their content, same link", "Last note: answer the likely worry (commitment or proof), then “should I close this for now?”"] },
+  sample_sent: { label: "Got the sample, no reply", from: "sample sent", days: [1, 4], park: 45,
+    touch: ["Check the link opened, one line on why that moment", "Last note: one new idea from a recent video, then “should I close this for now?”"] },
+  said_yes: { label: "Said yes, then quiet", from: "their yes", days: [1, 3], park: 30,
+    touch: ["Resend the link, “type the card by hand if it fails”", "Last note: ask what is blocking them"] },
   thinking: { label: "Thinking / not now", from: "the date they gave", days: [0, 7], park: 30,
     touch: ["Check in on the date they named, one new idea", "Last gentle note, then park"] },
   parked: { label: "Parked, time to re-engage", from: "re-engage date", days: [0], park: 60, touch: ["A fresh idea from their newest content, no pressure"] },
