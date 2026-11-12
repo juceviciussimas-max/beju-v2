@@ -429,7 +429,7 @@ const CARDS = [
       ${STATE.rg ? `<span class="lab" data-v="y:${pc(Y(GOAL), H)}">goal ${usd(GOAL)}</span>` : ""}${STATE.rp ? `<span class="lab k" data-v="y:${pc(Y(d.projected), H)}">on pace ${usd(d.projected)}</span>` : ""}
       <i class="cur"></i><i class="cdot a c-blue"></i><div class="tip"></div></div>
     <div class="xl"><span>${d.monthName} 1</span><span>${d.monthName} ${Math.round(d.dim / 2)}</span><span>${d.monthName} ${d.dim}</span></div>
-    <div class="trio quad">${tri("So far", N(d.month, "usd"), "pays", "month")}${tri("Pace needed by today", N(paceNow, "usd"), "goal", "")}${tri("Behind pace", `<span class="${d.month >= paceNow ? "up" : "dn"}">${N(Math.abs(paceNow - d.month), "usd")}</span>`, "goal", "")}${tri("On pace for", N(d.projected, "usd"), "goal", "")}</div>`;
+    <div class="trio quad">${tri("So far", N(d.month, "usd"), "pays", "month")}${tri("Pace needed by today", N(paceNow, "usd"), "goal", "")}${tri(d.month >= paceNow ? "Ahead of pace" : "Behind pace", `<span class="${d.month >= paceNow ? "up" : "dn"}">${N(Math.abs(paceNow - d.month), "usd")}</span>`, "goal", "")}${tri("On pace for", N(d.projected, "usd"), "goal", "")}</div>`;
   } },
 { id: "newleads", title: "New leads today", render: d => { const on = clamp(Math.round(d.todayNew / d.target * 10), 0, 10);
     return `${head("New leads today", dB("sync", "", `target ${nf0.format(d.target)}`, "lk", "Where the target comes from"))}
