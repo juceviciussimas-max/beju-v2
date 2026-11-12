@@ -40,7 +40,7 @@
   --orange:#D9B45A; --orange-soft:rgba(217,180,90,.16); --green:#5ACB8A; --green-soft:rgba(68,184,116,.16); --red:#F0806C; --red-soft:rgba(240,128,108,.16);
   --feat:radial-gradient(130% 120% at 0% 0%,#1C8A57 0%,#123A2A 42%,#0D1009 100%); --feat-ink:#F7F5EC; --feat-mute:#B9C6BC; --feat-line:rgba(255,255,255,.16);
   --shadow:inset 0 1px 0 rgba(255,255,255,.05),0 10px 30px rgba(0,0,0,.35);
-  --glass:linear-gradient(160deg,rgba(255,255,255,.085),rgba(255,255,255,.02) 55%); --tint:rgba(12,20,17,.6); --tint-lite:rgba(12,20,17,.86);
+  --glass:linear-gradient(160deg,rgba(255,255,255,.085),rgba(255,255,255,.02) 55%); --tint:rgba(12,20,17,.6); --tint-lite:rgba(9,15,12,.9);
   --edge:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -1px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06),0 18px 40px rgba(0,0,0,.28);
   --rim-a:rgba(255,255,255,.26); --rim-b:rgba(255,211,92,.2); --sheen:rgba(255,255,255,.08); --solid:#0B110D; --scrim:rgba(4,8,6,.55);
   --on-accent:#06140C; --cta:#FFD35C; --cta-ink:#191205; --focus:#FFD35C; --key:#FFD35C; --signal:#FFD35C; --live:#FFD35C;
@@ -108,7 +108,7 @@ svg{display:block}
 .card{position:relative;background:var(--card);box-shadow:var(--edge);border-radius:var(--r-card);padding:18px;margin-bottom:var(--gap);min-width:0;animation:rise .7s var(--ease) backwards;animation-delay:calc(var(--i,0)*35ms);transition:background-color .3s}
 @keyframes rise{from{opacity:0;transform:translateY(14px) scale(.985)}}
 .card.feat{background:var(--feat);color:var(--feat-ink)}
-.card.feat .mut,.card.feat .ct{color:var(--feat-mute)}
+.card.feat .mut{color:var(--feat-mute)} .card.feat .ct{color:var(--feat-ink)}
 .card.bare{padding:10px}
 .ch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;min-height:22px}
 .ct{color:var(--mute);font-size:13.5px;font-weight:400;white-space:nowrap}
@@ -280,7 +280,7 @@ button.tile:hover,.tile.tap:hover{transform:translateY(-2px);box-shadow:0 2px 4p
 .days i{width:4px;height:4px;border-radius:50%;background:transparent}
 .days .has i{background:var(--orange)}
 .days .on{background:var(--blue);color:var(--on-accent);box-shadow:0 6px 14px var(--glow)} .days .on:hover{background:var(--blue)}
-.days .on small{color:inherit;opacity:.72} .days .on.has i{background:var(--on-accent)}
+.days .on small{color:inherit} .days .on.has i{background:var(--on-accent)}
 .duelist{margin-top:12px}
 
 /* ---------- search / toggle / export ---------- */
@@ -428,13 +428,13 @@ body::before{inset:-20%;background:var(--bd);animation:aurora 38s ease-in-out in
 .hero-sub .mono{color:var(--ink)}
 .hero-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .hf{background:var(--tile);border:1px solid var(--line);border-radius:16px;padding:12px 14px;min-width:0}
-.hf span{display:block;color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hf>span{display:block;color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hf b{display:block;font-family:var(--mono);font-weight:500;font-size:20px;letter-spacing:-.04em;margin-top:2px;white-space:nowrap}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
 .kpi{text-align:left;background:var(--tile);border:1px solid var(--line);border-radius:16px;padding:11px 13px;min-width:0;transition:transform .25s var(--ease),border-color .2s,background-color .2s}
 .kpi:hover{transform:translateY(-2px);border-color:var(--line-2)}
-.kpi span{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kpi span i{width:6px;height:6px;border-radius:50%;background:var(--c,var(--blue));flex:none}
+.kpi>span{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi>span i{width:6px;height:6px;border-radius:50%;background:var(--c,var(--blue));flex:none}
 .kpi b{display:block;font-family:var(--mono);font-weight:500;font-size:21px;letter-spacing:-.04em;margin-top:2px;white-space:nowrap}
 .kpi b small{font-family:var(--sans);font-size:11.5px;color:var(--mute);font-weight:400;letter-spacing:0;margin-left:5px}
 .trk-w{margin:26px 0 30px;position:relative}
@@ -467,7 +467,7 @@ body::before{inset:-20%;background:var(--bd);animation:aurora 38s ease-in-out in
 .xp:hover{color:var(--ink);background:var(--panel)}
 .xp svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ch .xp{margin-left:auto}.ch .cx+.xp{margin-left:0}
-.veil{position:fixed;inset:0;z-index:50;background:var(--scrim);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;place-items:center;padding:20px;animation:fade .25s ease both}
+.veil{position:fixed;inset:0;z-index:50;background:var(--scrim);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;place-items:center;padding:20px}
 .modal{width:min(920px,100%);max-height:min(86dvh,900px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--line);border-radius:26px;box-shadow:0 30px 80px rgba(0,0,0,.45);animation:pop .4s var(--ease) both;overflow:hidden}
 .modal{background:var(--solid);background:color-mix(in srgb,var(--solid) 88%,transparent);-webkit-backdrop-filter:var(--blurv);backdrop-filter:var(--blurv)}
 .modal.sm{width:min(480px,100%)}
@@ -580,7 +580,7 @@ button.fe:hover{background:var(--panel)}
 :root[data-mode="light"] .chip.w{color:#8f4a05}
 
 /* ---------- command palette ---------- */
-.pal-w{position:fixed;inset:0;z-index:70;background:var(--scrim);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;justify-items:center;align-items:start;padding:12vh 16px 16px;animation:fade .2s ease both}
+.pal-w{position:fixed;inset:0;z-index:70;background:var(--scrim);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:grid;justify-items:center;align-items:start;padding:12vh 16px 16px}
 .pal{width:min(600px,100%);background:var(--bg);border:1px solid var(--line-2);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:hidden;animation:pop .32s var(--ease) both}
 .pal{background:var(--solid);background:color-mix(in srgb,var(--solid) 88%,transparent);-webkit-backdrop-filter:var(--blurv);backdrop-filter:var(--blurv)}
 .pal-in{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
@@ -772,7 +772,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   .tabs button.on{color:var(--ink);background:var(--panel)} .tabs button.on svg{stroke:var(--key)}
   :root[data-mode="light"] .tabs button.on svg{stroke:var(--blue)}
   .tabs svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-  .tabs i{position:absolute;top:5px;left:calc(50% + 6px);min-width:17px;height:17px;border-radius:99px;background:var(--red);color:#fff;font:600 10px/17px var(--mono);font-style:normal;text-align:center;padding:0 4px}
+  .tabs i{position:absolute;top:5px;left:calc(50% + 6px);min-width:17px;height:17px;border-radius:99px;background:var(--red);color:var(--on-accent);font:600 10px/17px var(--mono);font-style:normal;text-align:center;padding:0 4px}
   html[data-tab="home"] .card:not([data-tab="home"]),html[data-tab="money"] .card:not([data-tab="money"]),html[data-tab="leads"] .card:not([data-tab="leads"]),html[data-tab="outreach"] .card:not([data-tab="outreach"]),html[data-tab="clients"] .card:not([data-tab="clients"]){display:none}
   html:not([data-tab="home"]) .hero{display:none} html:not([data-tab="clients"]) .zone-h{display:none}
   .zone-h{font-size:22px;margin:8px 2px 12px} .zone-h span{flex-basis:100%}
@@ -795,7 +795,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   .act{height:44px;padding:0 14px;font-size:13.5px} .icon-btn,.xp{width:44px;height:44px}
   .seg button{min-height:44px} .rng button{min-height:40px;padding:4px 12px} .lgt,.sortb{min-height:40px}
   button.kv{min-height:44px;align-items:center} .trio>button{min-height:44px} .more{min-height:44px}
-  button.lk,.cx button.lk{padding:12px 4px;margin:-12px -4px} button.chip{position:relative} button.chip::after{content:"";position:absolute;inset:-12px -6px}
+  button.lk,.cx button.lk{padding:14px 4px;margin:-14px -4px} button.chip{position:relative} button.chip::after{content:"";position:absolute;inset:-12px -6px}
   .days button{min-height:56px} .names button{min-height:40px} .legend button.lg{min-height:40px} .scb,.vs button{min-height:40px;min-width:44px}
   .sw{width:52px;height:32px} .sw::after{width:26px;height:26px} .sw[aria-checked="true"]::after{transform:translateX(20px)}
   button:active{opacity:.86}
@@ -843,9 +843,9 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   button.chip::after{inset:-12px -10px}
   .more{display:inline-flex;align-items:center;min-height:44px;min-width:44px}
   .ticker-t{padding:0 0 0 20px;gap:18px} .ticker-t button{min-height:44px}
-  .days{gap:2px} .wk{gap:2px}
+  .days{gap:0} .wk{gap:2px}
   .segbar button{position:relative} .segbar button::after{content:"";position:absolute;inset:-16px 0}
-  .row.np0{min-height:44px} .pt-lines a,.cv-t a{display:inline-block;padding:11px 0;margin:-11px 0;min-width:44px}
+  .row.np0{min-height:44px} .pt-lines a,.cv-t a{display:inline-block;padding:14px 0;margin:-14px 0;min-width:44px}
   .search{padding:0 12px} .search input{height:46px}
   .barb{padding:19px 0} button.pips{padding:12px 0;margin-top:2px} button.spark{min-height:64px}
   button.kv{min-height:44px;padding:0;display:flex;align-items:center}
@@ -856,7 +856,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   .tblw .lk{display:inline-flex;align-items:center;min-height:44px;padding:0;margin:0}
   .dr-navr .act{min-width:44px;justify-content:center}
 }
-@media (max-width:600px){.trk-w{min-height:48px;padding:18px 0 6px}.wk button{position:relative}.wk button::after{content:"";position:absolute;left:0;right:0;bottom:0;height:max(44px,100%)}.cx button.lk{min-width:44px}button.chip::after{inset:-12px -14px}}
+@media (max-width:600px){.trk-w{min-height:48px;padding:18px 0 6px}.tk{top:36px}.tk.pc{top:-4px}.wk button{position:relative}.wk button::after{content:"";position:absolute;left:0;right:0;bottom:0;height:max(44px,100%)}.cx button.lk{min-width:44px}button.chip::after{inset:-12px -14px}}
 
 /* ======================================================================
    Liquid glass. Frost is the :root block at the top, Forest is [data-mode="dark"];
@@ -867,7 +867,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   --blue:#8ab4ff; --blue-2:#c9dcff; --blue-soft:rgba(138,180,255,.16);
   --orange:#f2b266; --orange-soft:rgba(242,178,102,.16); --green:#5fd39a; --green-soft:rgba(95,211,154,.15); --red:#ff8674; --red-soft:rgba(255,134,116,.16);
   --feat:linear-gradient(150deg,rgba(255,255,255,.2),rgba(255,255,255,.05)),rgba(21,23,27,.72); --feat-ink:#f4f5f7; --feat-mute:#b6bbc6;
-  --glass:linear-gradient(160deg,rgba(255,255,255,.11),rgba(255,255,255,.03) 55%); --tint:rgba(22,24,28,.56); --tint-lite:rgba(22,24,28,.86);
+  --glass:linear-gradient(160deg,rgba(255,255,255,.11),rgba(255,255,255,.03) 55%); --tint:rgba(22,24,28,.56); --tint-lite:rgba(15,16,19,.9);
   --rim-a:rgba(255,255,255,.32); --rim-b:rgba(138,180,255,.22); --solid:#131518; --scrim:rgba(4,5,8,.55);
   --on-accent:#0b0c0e; --cta:#f4f5f7; --cta-ink:#0b0c0e; --focus:#8ab4ff; --key:#f4f5f7; --signal:#8ab4ff; --live:#5fd39a;
   --hero:linear-gradient(140deg,rgba(255,255,255,.14),rgba(255,255,255,.03)),rgba(20,22,26,.6);
@@ -880,7 +880,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   --blue:#4cc3ff; --blue-2:#a5e4ff; --blue-soft:rgba(76,195,255,.16);
   --orange:#ffc66e; --orange-soft:rgba(255,198,110,.16); --green:#5fe0b0; --green-soft:rgba(95,224,176,.15); --red:#ff8d7e; --red-soft:rgba(255,141,126,.16);
   --feat:radial-gradient(130% 120% at 0% 0%,#1b6fd6 0%,#0b3a8a 45%,#061a3d 100%); --feat-ink:#f2f8ff; --feat-mute:#bcd2ec;
-  --glass:linear-gradient(160deg,rgba(160,210,255,.14),rgba(160,210,255,.03) 55%); --tint:rgba(8,26,54,.56); --tint-lite:rgba(8,26,54,.86);
+  --glass:linear-gradient(160deg,rgba(160,210,255,.14),rgba(160,210,255,.03) 55%); --tint:rgba(8,26,54,.56); --tint-lite:rgba(6,20,43,.9);
   --edge:inset 0 1px 0 rgba(190,225,255,.2),inset 0 -1px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(160,210,255,.07),0 18px 40px rgba(0,16,50,.42);
   --rim-a:rgba(190,230,255,.38); --rim-b:rgba(127,227,255,.22); --solid:#081c3a; --scrim:rgba(2,8,20,.58);
   --on-accent:#04203a; --cta:#7fe3ff; --cta-ink:#04203a; --focus:#7fe3ff; --key:#7fe3ff; --signal:#7fe3ff; --live:#7fe3ff;
@@ -894,7 +894,7 @@ html.paused *,html.paused *::before,html.paused *::after{animation-play-state:pa
   --blue:#ff9f7a; --blue-2:#ffc8ad; --blue-soft:rgba(255,159,122,.16);
   --orange:#ffd27a; --orange-soft:rgba(255,210,122,.16); --green:#7fe0a8; --green-soft:rgba(127,224,168,.15); --red:#ff8f9c; --red-soft:rgba(255,127,143,.17);
   --feat:radial-gradient(130% 120% at 0% 0%,#c94a60 0%,#7c284e 45%,#2a1226 100%); --feat-ink:#fff5ef; --feat-mute:#f0cfc9;
-  --glass:linear-gradient(160deg,rgba(255,200,180,.15),rgba(255,200,180,.03) 55%); --tint:rgba(40,18,32,.6); --tint-lite:rgba(40,18,32,.87);
+  --glass:linear-gradient(160deg,rgba(255,200,180,.15),rgba(255,200,180,.03) 55%); --tint:rgba(40,18,32,.6); --tint-lite:rgba(30,13,24,.9);
   --edge:inset 0 1px 0 rgba(255,220,205,.2),inset 0 -1px 0 rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,200,180,.07),0 18px 40px rgba(50,8,26,.42);
   --rim-a:rgba(255,225,210,.4); --rim-b:rgba(255,160,130,.24); --solid:#2a1422; --scrim:rgba(16,6,12,.58);
   --on-accent:#2a1016; --cta:#ffd0a8; --cta-ink:#2a1016; --focus:#ffd0a8; --key:#ffd0a8; --signal:#ffd0a8; --live:#ffd0a8;
@@ -919,6 +919,8 @@ html.tilt-on .spec{opacity:1}
 :root[data-mode="light"] button.tile:hover,:root[data-mode="light"] .tile.tap:hover{background:rgba(255,255,255,.86)}
 :root[data-mode="light"] .seg button.on,:root[data-mode="light"] .rng button.on{background:rgba(255,255,255,.92)}
 :root[data-mode="light"] .heatd.h2{color:var(--ink)}
+:root[data-mode="dark"] .chip.b,:root[data-mode="dark"] .chip.cvn{color:var(--blue-2)} :root[data-mode="dark"] .chip.cvn.z{color:var(--ink-2)}
+:root[data-mode="dark"] .chip.r{color:color-mix(in srgb,var(--red) 70%,#fff)}
 /* no blur available, or the page measured slow (crm.js sets .fx-lite): the same pane from tint only. The backdrop is soft already. */
 html.fx-lite .card,html.fx-lite .gate-card{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass),var(--tint-lite)}
 html.fx-lite .card.feat{background:var(--feat)}
@@ -951,14 +953,13 @@ html.fx-lite .card.feat{background:var(--feat)}
 .swrow small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
 .sw[aria-checked="true"]{background:var(--focus)}
 .sw[disabled]{opacity:.5;cursor:not-allowed}
-@media (max-width:600px){.thg{grid-template-columns:repeat(2,minmax(0,1fr))} .thp{min-height:44px}}
+@media (max-width:600px){.thg{grid-template-columns:repeat(2,minmax(0,1fr))} .thp{min-height:44px} .lkb{width:44px;height:44px} .sw::before{content:"";position:absolute;inset:-8px -4px}}
 
 /* ======================================================================
    Ambient motion: the page never sits still. Only with data-motion="full",
    only transform / opacity, only on cards in view (.inview), paused when the
    tab is hidden (html.paused), off under prefers-reduced-motion.
    ====================================================================== */
-.hero{border-color:transparent}
 .bokeh{position:absolute;inset:0;overflow:hidden;pointer-events:none;border-radius:inherit;z-index:-1}
 .bokeh i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:50%;background:radial-gradient(circle,var(--glow-2),transparent 68%);opacity:.2}
 .bokeh i:nth-child(3n){background:radial-gradient(circle,var(--blue-2),transparent 68%)} .bokeh i:nth-child(3n+1){background:radial-gradient(circle,var(--purple),transparent 68%);opacity:.16}

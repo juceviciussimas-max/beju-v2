@@ -1,74 +1,90 @@
-# BEJÚ founder CRM dashboard
+# BEJÚ founder CRM (`/crm/`)
 
-One bento-style screen with the live numbers of the business: money this month and the road to $10k a month,
-new leads and emails sent, hot leads, buyer moods, samples, follow-ups, replies waiting, leads that are away,
-campaigns, inboxes, buyers and the funnel. Built 2026-11-12 for Simas.
-
-It is **read-only**: the page never inserts, updates or deletes anything.
+One page for the two founders: money, outreach, leads, samples, conversations and the client portal queues. Built 2026-11-12 (v2, liquid glass).
 
 ## Where it runs
 
-The folder works unchanged at both addresses (all paths are relative):
-
-- `https://bejucreative.digital/crm/` (after it is deployed to the live site repo)
+- `https://bejucreative.digital/crm/` (after the site repo deploys this folder)
 - `https://juceviciussimas-max.github.io/beju-v2/crm/`
-- locally: `http://localhost:8765/crm/` when `python3 -m http.server 8765` runs in the `beju-v2` folder
+- Local: `http://localhost:8765/crm/` (any static server on the `beju-v2` folder)
 
-## Who can see it
+The folder is self-contained: relative paths only, own fonts, no build step. Files: `index.html`, `theme.js`, `crm.css`, `config.js`, `crm.js`, `manifest.webmanifest`, `fonts/`. After any change to `theme.js`, `crm.css` or `crm.js`, bump the four `?v=` strings in `index.html`.
 
-Only a founder login. The data is protected in the database: every CRM table has row-level security that answers
-only when `is_admin()` is true. The sign-in screen on this page is just the front door.
+## Who can open it
 
-How a founder gets access:
+One login for the whole site, routed by role:
 
-1. Open the page, choose **Create founder login**, enter name, email and a password (8+ characters).
-2. The page shows "This area is for the BEJÚ founders" and loads nothing.
-3. A founder approves the account by hand: set `is_admin = true` on that row of `profiles` (Supabase SQL editor,
-   or ask Simas's Claude). Approval is never automatic. Check that the sign-up really is the founder first,
-   because email confirmation is not switched on yet.
-4. Press **Check again** (or log in again): the dashboard opens.
+- A login whose `profiles.is_admin` is `true` (a founder) sees the dashboard.
+- Any other signed-in login is sent to the client portal (`/portal/` on bejucreative.digital, `https://bejucreative.digital/portal/` from any other host). The page asks the database for nothing but that login's own profile first.
+- One exception: right after "Create founder login" the new login stays on a waiting screen (with a "Go to the client portal" button) until a founder approves it. On a later visit it is routed like any client until it is approved.
+- The CRM's own "Client portal" links end in `?view=portal`, so the portal does not send a founder straight back here.
 
-A founder who is already logged in on `/portal/` on the same site is logged in here too (same Supabase session).
+The real protection is row-level security (`is_admin()` on every CRM table); the screens are only the front door.
 
-## Files
+A new founder: open the page, choose "Create founder login", sign up, then a founder sets `is_admin = true` on that `profiles` row **after confirming who it is** (email confirmation is off). There are no shared passwords.
 
-- `index.html`: page shell, icon sprite, sign-in screen, drawer. Strict CSP: no inline styles or scripts.
-- `crm.css`: the bento design, light and dark theme, motion (switched off under `prefers-reduced-motion`).
-- `crm.js`: sign-in gate, data loading, the 27 cards, lead drawer, search, CSV export, 60-second refresh.
-- `config.js`: settings (below).
-- `fonts/`: Geist and Geist Mono, self-hosted.
+Account menu (person icon): website, client portal, look, motion, refresh, **change password** (your own login only, 10+ characters) and sign out.
 
-## config.js
+## Looks and motion
 
-| Key | Meaning |
+Five liquid-glass looks, saved per device (`localStorage` key `beju-crm-look`):
+
+| Look | What it is |
 |---|---|
-| `supabaseUrl` | The Supabase project URL. |
-| `supabaseAnonKey` | The public anon key. Never put the service-role key or any other secret here. |
-| `monthlyGoal` | The monthly revenue goal for the "Road to $10k / month" ring (10000). |
-| `timezone` | Time zone for every date on the page (`Europe/Vilnius`). |
+| Frost (default) | bright white glass over a soft colour backdrop |
+| Graphite | neutral dark glass |
+| Forest | the BEJÚ brand green |
+| Ocean | deep blue glass |
+| Sunset | warm peach and rose glass |
 
-## Where the numbers come from
+Pick one from the account menu, the sun button in the top bar, the Look card, or the command palette ("Look: Ocean"). On a device with nothing saved, a "Pick your look" sheet opens once after sign-in. `theme.js` applies the saved look before the first paint; `crm.js` owns the picker.
 
-| Card | Source |
+How a look is built (`crm.css`): `<html data-theme data-mode data-motion>`. The `:root` block is Frost, `[data-mode="dark"]` is Forest, and Graphite / Ocean / Sunset override the dark tokens near the end of the file. Each look sets its backdrop (`--bd`), pane (`--glass`, `--tint`, `--tint-lite`), rim, accent and chart colours. To add a look: add a token block, add one row to `THEMES` in `crm.js` and one line to `MODE` in `theme.js`, add a `.thsw[data-th]` swatch.
+
+Glass: panes blur and saturate what is behind them (`backdrop-filter`), with a highlight layer, a gradient rim and a sheen. Two fallbacks keep the same look without live blur: phones never blur the cards (only the top bar, tab bar, hero and sheets), and on a desktop the page measures its frame rate once after loading and drops the card blur under about 40 frames a second (`html.fx-lite`). Browsers without `backdrop-filter` get opaque panes.
+
+Motion: **Full** keeps small loops running (backdrop drift, sheen across cards, breathing progress head, shimmer on bars and hot leads, floating specks in the hero, ticker). **Calm** stops the loops and keeps transitions and count-ups. The switch is in the account menu, the Look card and the palette; saved as `beju-crm-motion`. Loops only run on cards in view, pause when the tab is hidden, and are off when the device asks for reduced motion.
+
+Text contrast was checked on rendered pixels in every look (4.5:1 for normal text). Check again after changing colours.
+
+## What it writes
+
+Everything is read-only except the client-portal actions, which make the same writes as `scripts/portal_ops.py`, in the same order:
+
+| Action | Tables |
 |---|---|
-| Money, road to $10k, buyers, milestone | `payments` (refunded payments left out) |
-| Outreach chart, new leads, reply-rate change | `campaign_daily` |
-| Sent in total, campaigns, reply rate, funnel top | `campaign_live` |
-| Hot leads, buyer moods, samples, search, CSV | `pipeline` |
-| Needs attention | view `needs_attention` + open `promises` past due |
-| Follow-ups | view `fu_state` |
-| Away / auto-replies | `reply_queue` (kind AUTO, unanswered, last 7 days) |
-| Today | `today_items` |
-| Inboxes | `inbox_live` |
-| Videos delivered | `deliveries` |
-| Client portal | `profiles`, `sample_requests`, `videos` |
-| Lead drawer | `pipeline`, `promises`, `client_notes`, `threads` (loaded when a lead is opened) |
+| Accept / Building / Decline / Ready on a free-sample request | `sample_requests` (status, `due_at`, `note`, `preview_url`, `delivered_at`) |
+| Mark editing | `videos.status` |
+| Deliver a version | insert `video_versions`, set open `video_notes.done_at`, then update `videos` (status, link, version, dates) |
+| Add a pack (someone who paid outside the portal) | insert `purchases` |
+| Change password | the signed-in user's own password (`auth.updateUser`) |
 
-Notes on definitions:
+Every action shows a confirm sheet that says what the client will see. Links must be http or https. Nothing else is ever inserted, updated or deleted. SQL that these rely on: `supabase/crm_bento1.sql`.
 
-- **Real replies** = Instantly's unique human replies (`replies`). Auto-replies are a separate count (`replies_auto`).
-- **Buyer** = pipeline status WON or DONE, or a non-empty `paid` field.
-- **Buyer moods**: one mood per lead, first match wins: Lost, Hot (status HOT or said yes), Asked price, Talking,
-  Thinking, Quiet (parked), Sample in edit, Watching sample, Quiet. Buyers are counted apart.
-- **Campaigns** lists only campaigns the last sync touched; older ones still count in "Sent in total".
-- The Supabase REST API returns at most 1,000 rows per call; the loader pages through bigger tables.
+## Live data
+
+- Realtime (Supabase) on `payments, reply_queue, sample_requests, videos, video_notes, profiles`: a change shows a toast at once and triggers one refresh about 1.5 seconds later (bursts are merged). A new payment also throws confetti.
+- A full refresh runs every 60 seconds as well. The status chip says "Live" or "Polling" truthfully.
+- Conversations: `threads.body` holds the full text; rows not backfilled yet show the short preview and say so.
+
+## Using it
+
+- Every number, chart mark and row opens the list behind it. Lists open leads; leads open the whole conversation.
+- Period switch (Today · 7d · 30d · Month) in the hero drives the hero chips, the money card and the outreach range. Owner switch (All · Simas · Benas) filters every pipeline card.
+- Shortcuts: `⌘K` / `Ctrl K` search and actions · `/` lead search · arrows in a chart move through days, in a lead they move through the list · `Enter` opens · `Esc` closes · `W` wall mode.
+
+## Phone (600px and narrower)
+
+Five bottom tabs (Home · Money · Leads · Outreach · Clients), each with its own cards; the last tab is remembered. Compact header with the owner switch, search, live dot and account menu. Lead drawers and lists are bottom sheets (drag the handle down to close); a conversation opens at the latest message. Charts: first tap shows the value, second tap opens it. On phones that report tilt without asking (Android), the hero highlight follows the device; the page never asks for that permission. `manifest.webmanifest` + Apple meta tags make it installable ("Add to Home Screen"); there is no service worker, so it needs a connection.
+
+## Config (`config.js`)
+
+`supabaseUrl`, `supabaseAnonKey` (public by design; never put the service-role key or any secret here), `monthlyGoal` (10000), `timezone` (`Europe/Vilnius`).
+
+## Known limits
+
+- Speed to reply is an estimate: `threads` does not mark auto-replies; they are left out only where the reply queue (last 60 days) marks them.
+- Deliveries are matched to clients through the `clients` list; a payer who is not on it shows payments but no videos.
+- `pipeline.source` and `pipeline.campaign` are empty, so there is no "which lane buys" card yet.
+- Chart marks narrower than 44px on a phone (8-week mini bars, inbox bars, mood segments) keep their size; the number or legend row beside each opens the same list.
+- A few synced message bodies arrive HTML-escaped (`&#x27;`); the page decodes them for display. The stored text is unchanged.

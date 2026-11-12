@@ -72,6 +72,26 @@ function snippet(t: string) {
   return t.split(/\n\s*On .{5,80}wrote:|\n>/)[0].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 160);
 }
 
+// The whole message as readable text (SIMAS 11-12: whole conversations in the CRM). Mirrors replies.full_text in the Dashboard repo.
+function fullText(e: any): string {
+  let h: string = e.body?.html || "", t: string = e.body?.text || e.content_preview || "";
+  if (h) {
+    h = h.replace(/<blockquote\b[\s\S]*|<div[^>]*class="?gmail_quote[\s\S]*|<div[^>]*id="?(?:divRplyFwdMsg|appendonsend)[\s\S]*/i, "")
+      .replace(/<(style|script|head)\b[\s\S]*?<\/\1>/gi, "")
+      .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6])>/gi, "\n")
+      .replace(/<a\b[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m: string, u: string, x: string) => x.includes(u.replace(/\/$/, "")) ? x : `${x} (${u})`)
+      .replace(/<[^>]+>/g, "");
+    t = h.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCodePoint(+n)).replace(/&amp;/g, "&");
+  }
+  t = t.replace(/\r/g, "").replace(/ /g, " ");
+  if (t.trimStart().startsWith(">")) t = t.replace(/^>\s?/gm, "");
+  t = ("\n" + t).split(/\n\s*On .{5,160}?wrote:|\n-{2,}\s*Original Message\s*-{2,}|\nFrom: .{3,120}\n(?:Sent|Date): |\n>/)[0];
+  const lines = t.split("\n").map(x => x.replace(/[ \t]+/g, " ").trim()), subj = (e.subject || "").trim().toLowerCase();
+  while (lines.length && (!lines[0] || lines[0].toLowerCase() === subj)) lines.shift();
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 12000);
+}
+
 async function replies(pipeEmails: Set<string>) {
   const since = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 19), week = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 19);
   const [rec, sent] = [await mailSince("received", since), await mailSince("sent", since)];
@@ -103,7 +123,7 @@ async function replies(pipeEmails: Set<string>) {
   await sb.from("reply_queue").delete().lt("received_at", new Date(Date.now() - 7 * 864e5).toISOString());
   const th = [...rec.map(m => [m, "in"]), ...sent.map(m => [m, "out"])].filter(([m]) => pipeEmails.has((m.lead || "").toLowerCase()) && m.id)
     .map(([m, dir]) => ({ msg_id: m.id, lead_email: (m.lead || "").toLowerCase(), at: m.timestamp_email, direction: dir, inbox: m.eaccount,
-      subject: (m.subject || "").slice(0, 200), snippet: snippet(bodyOf(m)).slice(0, 600) }));
+      subject: (m.subject || "").slice(0, 200), snippet: snippet(bodyOf(m)).slice(0, 600), body: fullText(m) || null }));
   for (let i = 0; i < th.length; i += 200) await sb.from("threads").upsert(th.slice(i, i + 200), { onConflict: "msg_id" });
   return { queue: queue.length, threads: th.length };
 }

@@ -771,7 +771,8 @@ async function loadConv(emails) {
   const run = async cols => { const out = []; for (let i = 0; ; i += 1000) { const rows = await must(sb.from("threads").select(cols).in("lead_email", list).order("at").order("msg_id").range(i, i + 999)); out.push(...rows); if (rows.length < 1000) return out; } };
   try { return await run("msg_id,lead_email,at,direction,inbox,subject,snippet,body,source"); } catch { return run("msg_id,lead_email,at,direction,inbox,subject,snippet"); }
 }
-const rich = t => String(t || "").split(/(https?:\/\/[^\s<>"')\]]+)/g).map((s, i) => { if (!(i % 2)) return esc(s); const u = webUrl(s); return u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(cut(s, 70))}</a>` : esc(s); }).join("");
+const unent = t => String(t || "").replace(/&#x27;|&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");   // some synced bodies arrive HTML-escaped; everything is escaped again below
+const rich = t => unent(t).split(/(https?:\/\/[^\s<>"')\]]+)/g).map((s, i) => { if (!(i % 2)) return esc(s); const u = webUrl(s); return u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(cut(s, 70))}</a>` : esc(s); }).join("");
 function convMsgs(msgs, q) {
   q = lc(q); const shown = q ? msgs.filter(m => lc(`${m.body || m.snippet || ""} ${m.subject || ""} ${m.inbox || ""}`).includes(q)) : msgs; let day = "", subj = "", out = "";
   shown.forEach((m, i) => { const d0 = dayOf(m.at), sj = String(m.subject || "").replace(/^(\s*(re|fwd?|aw)\s*:\s*)+/i, "").trim(), txt = String(m.body || m.snippet || m.subject || "").trim(), long = txt.length > 700 || (txt.match(/\n/g) || []).length > 8, mine = m.direction === "out";
@@ -1004,8 +1005,9 @@ function measureFx() {
     const tick = t => { if (document.hidden) { FXM = false; return; } n++; if (t - t0 < 1500) requestAnimationFrame(tick); else if (n / (t - t0) * 1000 < 40) document.documentElement.classList.add("fx-lite"); };
     requestAnimationFrame(tick); }, 2600);
 }
-/* Phones that report tilt without a permission prompt (Android) move the hero highlight with the device; elsewhere the sheen sweeps on its own. */
-if (COARSE && !RM && "DeviceOrientationEvent" in window && typeof DeviceOrientationEvent.requestPermission !== "function") {
+/* Phones that report tilt without asking (Android) move the hero highlight with the device. This never asks for the permission:
+   where the browser wants a prompt first (iOS) no event arrives and the sheen keeps sweeping on its own. */
+if (COARSE && !RM && "DeviceOrientationEvent" in window) {
   let q = false;
   addEventListener("deviceorientation", e => { if (e.gamma == null || q || !motionFull()) return; q = true;
     requestAnimationFrame(() => { q = false; const h = $("#hero"); if (!h) return; document.documentElement.classList.add("tilt-on");
