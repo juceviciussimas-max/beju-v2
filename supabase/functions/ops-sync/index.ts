@@ -54,6 +54,30 @@ async function ig(path: string) {
   if (!r.ok) throw new Error(`Instantly ${r.status} ${path.split("?")[0]}`);
   return r.json();
 }
+// Hot leads = every lead Instantly marks Interested (SIMAS 11-12: "we have much more hot leads than 11").
+// Every 3rd run (~30 min): 2 calls for ~110 leads. Rows that are no longer Interested are removed.
+async function interested() {
+  const out: any[] = []; let cur: string | null = null;
+  for (let page = 0; page < 6; page++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const r: Response = await fetch("https://api.instantly.ai/api/v2/leads/list", { method: "POST", headers: { Authorization: `Bearer ${IKEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ filter: "FILTER_LEAD_INTERESTED", limit: 100, ...(cur ? { starting_after: cur } : {}) }) });
+    if (!r.ok) throw new Error(`Instantly ${r.status} /leads/list`);
+    const d: any = await r.json(); out.push(...(d.items || [])); cur = d.next_starting_after || null;
+    if (!cur || !(d.items || []).length) break;
+  }
+  if (!out.length) return 0;                                        // never wipe the table on an empty answer
+  const { data: camps } = await sb.from("campaign_live").select("campaign_id,name");
+  const cn: Record<string, string> = Object.fromEntries((camps || []).map((c: any) => [c.campaign_id, c.name]));
+  const now = new Date().toISOString();
+  const rows = out.filter(x => (x.email || "").includes("@")).map(x => ({ email: x.email.trim().toLowerCase(), first_name: x.first_name, company: x.company_name,
+    campaign_id: x.campaign, campaign: cn[x.campaign] || null, inbox: x.last_contacted_from || x.status_summary?.lastStep?.from || null,
+    reply_count: x.email_reply_count, last_reply_at: x.timestamp_last_reply, last_contact_at: x.timestamp_last_contact,
+    interest_changed_at: x.timestamp_last_interest_change, created_at: x.timestamp_created, synced_at: now }));
+  await sb.from("interested_leads").upsert(rows, { onConflict: "email" });
+  await sb.from("interested_leads").delete().lt("synced_at", now);
+  return rows.length;
+}
 async function mailSince(type: string, since: string, maxPages = 3) {
   const out: any[] = []; let cur = "";
   for (let p = 0; p < maxPages; p++) {
@@ -135,8 +159,13 @@ Deno.serve(async req => {
   try { out.pipeline = await samples(); await sb.from("sync_status").upsert({ name: "sheet", ran_at: new Date().toISOString(), ok: true, detail: `${out.pipeline} pipeline leads (cloud)` }); }
   catch (e) { out.sheet_error = String(e); await sb.from("sync_status").upsert({ name: "sheet", ran_at: new Date().toISOString(), ok: false, detail: String(e).slice(0, 200) }); }
   try {
+    if (new Date().getUTCMinutes() % 30 < 10) {
+      try { out.interested = await interested(); await sb.from("sync_status").upsert({ name: "interested", ran_at: new Date().toISOString(), ok: true, detail: `${out.interested} interested leads` }); }
+      catch (e) { await sb.from("sync_status").upsert({ name: "interested", ran_at: new Date().toISOString(), ok: false, detail: String(e).slice(0, 200) }); }
+    }
     const { data } = await sb.from("pipeline").select("email");
-    out.replies = await replies(new Set((data || []).map(r => r.email)));
+    const { data: hot } = await sb.from("interested_leads").select("email");     // their mail goes into threads too
+    out.replies = await replies(new Set([...(data || []), ...(hot || [])].map(r => r.email)));
     await sb.from("sync_status").upsert({ name: "replies", ran_at: new Date().toISOString(), ok: true, detail: JSON.stringify(out.replies) });
   } catch (e) { out.replies_error = String(e); await sb.from("sync_status").upsert({ name: "replies", ran_at: new Date().toISOString(), ok: false, detail: String(e).slice(0, 200) }); }
   return new Response(JSON.stringify(out), { headers: { "Content-Type": "application/json" } });

@@ -85,7 +85,7 @@ async function all(table, cols = "*", mod) {   // REST caps at 1,000 rows per ca
 }
 async function fetchAll() {
   const t = today(), since60 = new Date(Date.now() - 60 * 864e5).toISOString();
-  const [pipeline, payments, daily, camps, replies, attention, fu, inboxes, todayItems, sync, deliveries, clients, promises, profiles, sampleReq, videos, purchases, vnotes, leadAdds, tlite] = await Promise.all([
+  const [pipeline, payments, daily, camps, replies, attention, fu, inboxes, todayItems, sync, deliveries, clients, promises, profiles, sampleReq, videos, purchases, vnotes, leadAdds, tlite, interested] = await Promise.all([
     all("pipeline", "*", q => q.order("email")),
     all("payments", "id,client_id,email,payer_name,amount,currency,package,refunded,paid_at", q => q.order("paid_at", { ascending: false })),
     all("campaign_daily", "campaign_id,day,sent,new_leads,replies,replies_auto,opportunities", q => q.gte("day", addDays(t, -75)).order("day").order("campaign_id")),
@@ -102,11 +102,13 @@ async function fetchAll() {
     all("video_notes", "id,video_id,user_id,at,text,created_at,round,done_at", q => q.order("created_at", { ascending: false })),
     all("lead_adds", "day,tab,n", q => q.gte("day", addDays(t, -21))),
     all("threads", "lead_email,at,direction", q => q.order("at").order("msg_id")),   // light copy of every message: counts per lead + speed to reply
+    all("interested_leads", "*", q => q.order("email")),   // 11-12: every lead Instantly marks Interested = hot
   ]);
-  return { pipeline, payments, daily, camps, replies, attention, fu, inboxes, todayItems, sync, deliveries, clients, promises, profiles, sampleReq, videos, purchases, vnotes, leadAdds, tlite };
+  return { pipeline, payments, daily, camps, replies, attention, fu, inboxes, todayItems, sync, deliveries, clients, promises, profiles, sampleReq, videos, purchases, vnotes, leadAdds, tlite, interested };
 }
 
 /* ---------------- derive ---------------- */
+const ownerOfInbox = ib => /^(simas|simon|team|editor|studio)@/i.test(ib || "") ? "Simas" : /^(ben|benas|hello|official|info)@/i.test(ib || "") ? "Benas" : "";
 const isBuyer = p => /^(WON|DONE)$/i.test(p.status || "") || !!(p.paid && String(p.paid).trim());
 function mood(p) {
   const s = (p.status || "").toUpperCase(), f = (p.fu_stage || "").toLowerCase();
@@ -175,10 +177,17 @@ function derive() {
   d.moods = MOODS.map(([k, label, c]) => ({ k, label, c, n: counts[k] || 0 })).filter(m => m.n);
   const waitUs = new Set(R.attention.filter(a => a.kind === "reply").map(a => lc(a.lead_email)));
   const fuBy = Object.fromEntries(R.fu.map(f => [lc(f.email), f]));
-  d.hot = pipe.filter(p => (p.status || "").toUpperCase() === "HOT" || /^(said_yes|asked_price)$/.test(p.fu_stage || "")).map(p => {
-    const e = lc(p.email), f = fuBy[e], lr = p.last_reply_at ? +new Date(p.last_reply_at) : 0, lo = f && f.last_out ? +new Date(f.last_out) : 0;
+  const intr = Object.fromEntries((R.interested || []).map(x => [lc(x.email), x])), pipeAll = Object.fromEntries(R.pipeline.map(p => [lc(p.email), p]));
+  const hotP = p => (p.status || "").toUpperCase() === "HOT" || /^(said_yes|asked_price)$/.test(p.fu_stage || "");
+  const cand = pipe.filter(p => hotP(p) || (intr[lc(p.email)] && !isBuyer(p) && !/^LOST$/i.test(p.status || "")));
+  Object.values(intr).forEach(x => { if (pipeAll[lc(x.email)]) return;
+    const p = { email: x.email, name: x.first_name || x.company || "", show: [x.company, x.campaign].filter(Boolean).join(" · "), owner: ownerOfInbox(x.inbox), inbox: x.inbox, status: "INTERESTED", last_reply_at: x.last_reply_at, interested: true };
+    if (own(p)) cand.push(p); });
+  d.hot = cand.map(p => {
+    const e = lc(p.email), f = fuBy[e], x = intr[e], lrP = p.last_reply_at ? +new Date(p.last_reply_at) : 0, lrI = x && x.last_reply_at ? +new Date(x.last_reply_at) : 0;
+    const lr = Math.max(lrP, lrI), lo = f && f.last_out ? +new Date(f.last_out) : 0;
     const us = waitUs.has(e) || (lr && lo && lr > lo);
-    const tag = p.fu_stage === "said_yes" ? ["said yes", "g"] : p.fu_stage === "asked_price" ? ["asked price", "o"] : isBuyer(p) ? ["hot client", "b"] : ["hot", "r"];
+    const tag = p.fu_stage === "said_yes" ? ["said yes", "g"] : p.fu_stage === "asked_price" ? ["asked price", "o"] : isBuyer(p) ? ["hot client", "b"] : hotP(p) ? ["hot", "r"] : ["interested", "b"];
     const days = lr ? (Date.now() - lr) / 864e5 : null;
     return { p, us, tag, lr, days, hl: days == null ? 3 : days <= 2 ? 0 : days <= 5 ? 1 : days <= 10 ? 2 : 3, na: p.next_action_at ? +new Date(p.next_action_at) : Infinity, sort: (us ? 1e15 : 0) + lr };
   }).sort(STATE.hotSort === "next" ? (a, b) => a.na - b.na : STATE.hotSort === "reply" ? (a, b) => b.lr - a.lr : (a, b) => b.sort - a.sort);
