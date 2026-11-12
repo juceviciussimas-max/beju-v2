@@ -82,7 +82,8 @@ function fullText(e: any): string {
       .replace(/<a\b[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m: string, u: string, x: string) => x.includes(u.replace(/\/$/, "")) ? x : `${x} (${u})`)
       .replace(/<[^>]+>/g, "");
     t = h.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
-      .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCodePoint(+n)).replace(/&amp;/g, "&");
+      .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCodePoint(+n))
+      .replace(/&#x([0-9a-f]+);/gi, (_m: string, x: string) => String.fromCodePoint(parseInt(x, 16))).replace(/&amp;/g, "&");
   }
   t = t.replace(/\r/g, "").replace(/ /g, " ");
   if (t.trimStart().startsWith(">")) t = t.replace(/^>\s?/gm, "");
