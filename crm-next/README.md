@@ -1,74 +1,61 @@
-# BEJÚ founder CRM dashboard
+# BEJÚ founder CRM (`/crm/`)
 
-One bento-style screen with the live numbers of the business: money this month and the road to $10k a month,
-new leads and emails sent, hot leads, buyer moods, samples, follow-ups, replies waiting, leads that are away,
-campaigns, inboxes, buyers and the funnel. Built 2026-11-12 for Simas.
-
-It is **read-only**: the page never inserts, updates or deletes anything.
+One page for the two founders: money, outreach, leads, samples, conversations and the client portal queues, in the website's look. Built 2026-11-12 (v2).
 
 ## Where it runs
 
-The folder works unchanged at both addresses (all paths are relative):
-
-- `https://bejucreative.digital/crm/` (after it is deployed to the live site repo)
+- `https://bejucreative.digital/crm/` (after the site repo deploys this folder)
 - `https://juceviciussimas-max.github.io/beju-v2/crm/`
-- locally: `http://localhost:8765/crm/` when `python3 -m http.server 8765` runs in the `beju-v2` folder
+- Local: `http://localhost:8765/crm/` (any static server on the `beju-v2` folder)
 
-## Who can see it
+The folder is self-contained: relative paths only, own fonts, no build step. After any change to `crm.css` or `crm.js`, bump the three `?v=` strings in `index.html`.
 
-Only a founder login. The data is protected in the database: every CRM table has row-level security that answers
-only when `is_admin()` is true. The sign-in screen on this page is just the front door.
+## Who can open it
 
-How a founder gets access:
+Sign in with a Supabase login whose `profiles.is_admin` is `true`. Anyone else sees a waiting screen and the page asks the database for nothing but their own profile. The real protection is row-level security (`is_admin()` on every CRM table); the screen is only the front door.
 
-1. Open the page, choose **Create founder login**, enter name, email and a password (8+ characters).
-2. The page shows "This area is for the BEJÚ founders" and loads nothing.
-3. A founder approves the account by hand: set `is_admin = true` on that row of `profiles` (Supabase SQL editor,
-   or ask Simas's Claude). Approval is never automatic. Check that the sign-up really is the founder first,
-   because email confirmation is not switched on yet.
-4. Press **Check again** (or log in again): the dashboard opens.
+A new founder: open the page, choose "Create founder login", sign up, then a founder sets `is_admin = true` on that `profiles` row **after confirming who it is** (email confirmation is off). There are no shared passwords. The same login works in the client portal on the same domain.
 
-A founder who is already logged in on `/portal/` on the same site is logged in here too (same Supabase session).
+Account menu (person icon): website, client portal, theme, refresh, **change password** (your own login only, 10+ characters) and sign out.
 
-## Files
+## What it writes
 
-- `index.html`: page shell, icon sprite, sign-in screen, drawer. Strict CSP: no inline styles or scripts.
-- `crm.css`: the bento design, light and dark theme, motion (switched off under `prefers-reduced-motion`).
-- `crm.js`: sign-in gate, data loading, the 27 cards, lead drawer, search, CSV export, 60-second refresh.
-- `config.js`: settings (below).
-- `fonts/`: Geist and Geist Mono, self-hosted.
+Everything is read-only except the client-portal actions, which make the same writes as `scripts/portal_ops.py`, in the same order:
 
-## config.js
-
-| Key | Meaning |
+| Action | Tables |
 |---|---|
-| `supabaseUrl` | The Supabase project URL. |
-| `supabaseAnonKey` | The public anon key. Never put the service-role key or any other secret here. |
-| `monthlyGoal` | The monthly revenue goal for the "Road to $10k / month" ring (10000). |
-| `timezone` | Time zone for every date on the page (`Europe/Vilnius`). |
+| Accept / Building / Decline / Ready on a free-sample request | `sample_requests` (status, `due_at`, `note`, `preview_url`, `delivered_at`) |
+| Mark editing | `videos.status` |
+| Deliver a version | insert `video_versions`, set open `video_notes.done_at`, then update `videos` (status, link, version, dates) |
+| Add a pack (someone who paid outside the portal) | insert `purchases` |
+| Change password | the signed-in user's own password (`auth.updateUser`) |
 
-## Where the numbers come from
+Every action shows a confirm sheet that says what the client will see. Links must be http or https. Nothing else is ever inserted, updated or deleted. SQL that these rely on: `supabase/crm_bento1.sql`.
 
-| Card | Source |
-|---|---|
-| Money, road to $10k, buyers, milestone | `payments` (refunded payments left out) |
-| Outreach chart, new leads, reply-rate change | `campaign_daily` |
-| Sent in total, campaigns, reply rate, funnel top | `campaign_live` |
-| Hot leads, buyer moods, samples, search, CSV | `pipeline` |
-| Needs attention | view `needs_attention` + open `promises` past due |
-| Follow-ups | view `fu_state` |
-| Away / auto-replies | `reply_queue` (kind AUTO, unanswered, last 7 days) |
-| Today | `today_items` |
-| Inboxes | `inbox_live` |
-| Videos delivered | `deliveries` |
-| Client portal | `profiles`, `sample_requests`, `videos` |
-| Lead drawer | `pipeline`, `promises`, `client_notes`, `threads` (loaded when a lead is opened) |
+## Live data
 
-Notes on definitions:
+- Realtime (Supabase) on `payments, reply_queue, sample_requests, videos, video_notes, profiles`: a change triggers one refresh (bursts are merged) and a toast. A new payment also throws confetti.
+- A full refresh runs every 60 seconds as well. The status chip says "Live" or "Polling" truthfully.
+- Conversations: `threads.body` holds the full text; rows not backfilled yet show the short preview and say so.
 
-- **Real replies** = Instantly's unique human replies (`replies`). Auto-replies are a separate count (`replies_auto`).
-- **Buyer** = pipeline status WON or DONE, or a non-empty `paid` field.
-- **Buyer moods**: one mood per lead, first match wins: Lost, Hot (status HOT or said yes), Asked price, Talking,
-  Thinking, Quiet (parked), Sample in edit, Watching sample, Quiet. Buyers are counted apart.
-- **Campaigns** lists only campaigns the last sync touched; older ones still count in "Sent in total".
-- The Supabase REST API returns at most 1,000 rows per call; the loader pages through bigger tables.
+## Using it
+
+- Every number, chart mark and row opens the list behind it. Lists open leads; leads open the whole conversation.
+- Period switch (Today · 7d · 30d · Month) in the hero drives the hero chips, the money card and the outreach range. Owner switch (All · Simas · Benas) filters every pipeline card.
+- Shortcuts: `⌘K` / `Ctrl K` search and actions · `/` lead search · arrows in a chart move through days, in a lead they move through the list · `Enter` opens · `Esc` closes · `W` wall mode.
+- Themes: BEJÚ dark (default) and Light; the choice is remembered.
+
+## Phone (600px and narrower)
+
+Five bottom tabs (Home · Money · Leads · Outreach · Clients), each with its own cards; the last tab is remembered. Compact header with the owner switch, search, live dot and account menu. Lead drawers and lists are bottom sheets (drag the handle down to close); a conversation opens at the latest message. Charts: first tap shows the value, second tap opens it. `manifest.webmanifest` + Apple meta tags make it installable ("Add to Home Screen"); there is no service worker, so it needs a connection.
+
+## Config (`config.js`)
+
+`supabaseUrl`, `supabaseAnonKey` (public by design; never put the service-role key or any secret here), `monthlyGoal` (10000), `timezone` (`Europe/Vilnius`).
+
+## Known limits
+
+- Speed to reply is an estimate: `threads` does not mark auto-replies; they are left out only where the reply queue (last 60 days) marks them.
+- Deliveries are matched to clients through the `clients` list; a payer who is not on it shows payments but no videos.
+- `pipeline.source` and `pipeline.campaign` are empty, so there is no "which lane buys" card yet.
+- Chart marks narrower than 44px on a phone (8-week mini bars, inbox bars, mood segments) keep their size; the number or legend row beside each opens the same list.

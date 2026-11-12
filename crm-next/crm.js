@@ -21,7 +21,11 @@ const lc = s => String(s || "").toLowerCase().trim();
 const cut = (s, n) => { s = String(s ?? "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; };
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const ON_SITE = /(^|\.)bejucreative\.digital$/i.test(location.hostname);
-const SITE = ON_SITE ? "/" : "https://bejucreative.digital/", PORTAL = ON_SITE ? "/portal/" : "https://bejucreative.digital/portal/";
+const SITE = ON_SITE ? "/" : "https://bejucreative.digital/", PORTAL_HOME = ON_SITE ? "/portal/" : "https://bejucreative.digital/portal/", PORTAL = PORTAL_HOME + "?view=portal";   // ?view=portal: the portal sends a founder to /crm/ unless the founder asks for the portal
+/* looks: id, name, mode, browser bar colour, one-line description. theme.js applies the saved one before the first paint. */
+const THEMES = [["frost", "Frost", "light", "#eef1f8", "Bright white glass"], ["graphite", "Graphite", "dark", "#0b0c0e", "Neutral dark glass"], ["forest", "Forest", "dark", "#070805", "BEJÚ brand green"], ["ocean", "Ocean", "dark", "#041226", "Deep blue glass"], ["sunset", "Sunset", "dark", "#1a0e16", "Warm peach and rose"]];
+const lookOf = () => THEMES.find(t => t[0] === document.documentElement.dataset.theme) || THEMES[0];
+const motionFull = () => document.documentElement.dataset.motion !== "calm";
 
 /* ---------------- dates (all in CFG.timezone) ---------------- */
 const fParts = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -515,7 +519,7 @@ const CARDS = [
     return `${head("Videos delivered", dB("vids", d.ym, `${d.monthName} ${d.vid.month}`, "lk"))}${big("vids", "all", N(d.vid.total), "Open the delivered videos")}
     <div class="wk mini">${d.vid.weeks.map((w, i) => `<button type="button" class="${i === 7 ? "on" : ""}" data-act="drill" data-k="vids" data-a="${w.s}" data-v="h:${(w.n / max * 100).toFixed(1)}%;k:${i}" title="Week of ${dLabel(w.s)}: ${w.n} videos" aria-label="Week of ${dLabel(w.s)}: ${w.n} videos. Open them."></button>`).join("")}</div><p class="sub">Per week, last 8 weeks.</p>`; } },
 { id: "search", cls: "bare", title: "Search leads", mount(el) { el.innerHTML = `<div class="tile"><label class="search">${ic("search")}<input id="q" type="search" placeholder="Search leads" autocomplete="off" spellcheck="false" aria-label="Search leads" aria-controls="res"><span class="kbd" aria-hidden="true">/</span></label><div class="res" id="res" role="listbox" aria-label="Results"></div></div>`; }, update() { renderSearch(); } },
-{ id: "theme", title: "Theme", mount(el) { el.innerHTML = `<div class="center"><button type="button" class="thb" data-act="theme" tabindex="-1" aria-hidden="true">${ic("sun")}<b>Light theme</b></button><button type="button" class="sw" role="switch" id="sw-theme" data-act="theme" aria-checked="false" aria-label="Light theme"></button><span class="sub">BEJÚ dark is the default.</span></div>`; }, update() { $("#sw-theme").setAttribute("aria-checked", document.documentElement.dataset.theme !== "dark"); } },
+{ id: "theme", title: "Look", mount(el) { el.innerHTML = `${head("Look", `<span class="chip" data-look-name></span>${dB("look", "", ic("expand"), "xp", "All looks")}`)}<div class="looks" role="group" aria-label="Colour theme">${THEMES.map(t => `<button type="button" class="lkb" data-act="look" data-t="${t[0]}" aria-pressed="false" aria-label="${t[1]} look" title="${t[1]}"><span class="thsw" data-th="${t[0]}"></span></button>`).join("")}</div><div class="swrow"><span><b>Motion: <span data-motion-l></span></b></span><button type="button" class="sw" role="switch" data-act="motion" aria-checked="true" aria-label="Ambient motion"></button></div>`; }, update() { syncLook(); } },
 { id: "portal", title: "Client portal numbers", render: d => `${head("Client portal", `<button type="button" class="chip ${d.pOpen ? "o" : ""}" data-act="jump" data-id="psamples" title="Jump to the portal queues">${d.pOpen} open</button>`)}<button type="button" class="big tapn" data-act="jump" data-id="pclients" title="Jump to the portal sign-ups">${N(d.portal.signups)}<small>sign-ups</small></button>
     <div class="stack sp"><button type="button" class="kv" data-act="jump" data-id="psamples"><span>Sample requests</span><span>${N(d.portal.req)}${d.portal.reqOpen ? ` · ${d.portal.reqOpen} new` : ""}</span></button><button type="button" class="kv" data-act="jump" data-id="pvideos"><span>Videos in edit</span><span>${N(d.portal.edit)}</span></button><button type="button" class="kv" data-act="jump" data-id="pvideos"><span>Videos ready</span><span>${N(d.portal.ready)}</span></button></div>` },
 { id: "sync", title: "Sync status", render: d => `<div class="stack">${d.sync.map(s => dB("sync", s.name, `<span class="it ${s.ok ? "c-ink" : "c-red"}"><svg><use href="#i-${s.ok ? "check" : "alert"}"/></svg></span><span class="row-main"><b>${esc({ instantly: "Sending", replies: "Replies", sheet: "Samples" }[s.name] || s.name)}</b><small>${esc(cut(/^\{/.test(s.detail || "") ? "synced" : s.detail, 40))}</small></span><span class="row-end"><small>${ago(s.ran_at)}</small></span>`, "tile row")).join("") || empty("No sync info.")}</div>` },
@@ -564,7 +568,8 @@ function mountHero() {
       <button type="button" class="hero-sub" id="hero-sub" data-act="drill" data-k="goal" data-a="" title="Open the maths"></button></div>
     <div><div class="hero-facts" id="hero-facts"></div><div class="kpis" id="kpis"></div></div></div>
     <button type="button" class="trk-w" data-act="drill" data-k="goal" data-a="" aria-label="Progress to the monthly goal. Open the maths."><span class="trk" id="trk"><i class="fill"></i><i class="pace"></i><i class="head"></i></span><span class="tk t25">${k(.25)}</span><span class="tk t50">${k(.5)}</span><span class="tk t75">${k(.75)}</span><span class="tk t100">${k(1)}</span><span class="tk pc" id="trk-pc">where today's pace is</span></button>
-    <div class="ticker" id="ticker" role="group" aria-label="Latest activity"><div class="ticker-t" id="ticker-t"></div></div>`;
+    <div class="ticker" id="ticker" role="group" aria-label="Latest activity"><div class="ticker-t" id="ticker-t"></div></div>
+    <i class="sheen" aria-hidden="true"></i><span class="bokeh" aria-hidden="true">${"<i></i>".repeat(7)}</span><i class="spec" aria-hidden="true"></i>`;
   Object.keys(HERO).forEach(x => delete HERO[x]);
 }
 function part(id, html, cardKey) { if (HERO[id] === html) return; HERO[id] = html; const el = $("#" + id); el.innerHTML = html; if (cardKey) countUp({ id: cardKey, el }); }
@@ -582,19 +587,21 @@ function updateHero(d) {
 }
 
 /* ---------------- render ---------------- */
+const IO = new IntersectionObserver(es => es.forEach(e => e.target.classList.toggle("inview", e.isIntersecting)), { rootMargin: "60px" });   // ambient loops run only on cards in view
 function build() {
-  const g1 = $("#grid"), g2 = $("#grid2"); g1.innerHTML = g2.innerHTML = "";
+  const g1 = $("#grid"), g2 = $("#grid2"); g1.innerHTML = g2.innerHTML = ""; IO.disconnect();
   const ro = new ResizeObserver(es => es.forEach(e => fit(e.target)));
   CARDS.forEach((c, i) => {
     const el = document.createElement("section"); el.id = "c-" + c.id; el.className = "card " + (c.cls || ""); el.dataset.tab = TABOF[c.id] || "home"; el.style.setProperty("--i", c.grid === 2 ? i - 30 : i); el.setAttribute("aria-label", c.title || c.id);
-    c.el = el; c.last = null; if (c.mount) c.mount(el); (c.grid === 2 ? g2 : g1).appendChild(el); ro.observe(el);
+    el.style.setProperty("--j", i % 8); c.sh = document.createElement("i"); c.sh.className = "sheen"; c.sh.setAttribute("aria-hidden", "true");
+    c.el = el; c.last = null; if (c.mount) c.mount(el); el.appendChild(c.sh); (c.grid === 2 ? g2 : g1).appendChild(el); ro.observe(el); IO.observe(el);
   });
 }
 function fit(el) { el.style.gridRowEnd = "span " + Math.ceil((el.offsetHeight + 16) / 4); }
 function renderAll(fromData) {
   D = derive();
   CARDS.forEach(c => {
-    if (c.render) { const html = c.render(D); if (html !== c.last) { c.last = html; c.el.innerHTML = html; if (c.focus) { const h = $(".ch", c.el); if (h) h.insertAdjacentHTML("beforeend", `<button type="button" class="xp" data-act="drill" data-k="${c.focus[0]}" data-a="${c.focus[1]}" aria-label="Expand ${esc(c.title)}" title="Expand">${ic("expand")}</button>`); } countUp(c); applyVars(c.el);
+    if (c.render) { const html = c.render(D); if (html !== c.last) { c.last = html; c.el.innerHTML = html; c.el.appendChild(c.sh); if (c.focus) { const h = $(".ch", c.el); if (h) h.insertAdjacentHTML("beforeend", `<button type="button" class="xp" data-act="drill" data-k="${c.focus[0]}" data-a="${c.focus[1]}" aria-label="Expand ${esc(c.title)}" title="Expand">${ic("expand")}</button>`); } countUp(c); applyVars(c.el);
         const sig = $$(".n[data-n]", c.el).map(x => x.dataset.n).join("|"); if (fromData && c.sig !== undefined && c.sig !== sig && !RM) { c.el.classList.remove("chg"); void c.el.offsetWidth; c.el.classList.add("chg"); } c.sig = sig; } }
     if (c.update) c.update(D);
   });
@@ -637,6 +644,8 @@ function setPeriod(p) { STATE.period = p; STATE.range = p === "30d" ? 30 : p ===
 const tbl = (heads, rows) => `<div class="tblw"><table class="tbl"><thead><tr>${heads.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
 const stackOf = (rows, none) => rows.length ? `<div class="stack">${rows.join("")}</div>` : empty(none || "Nothing here.");
 const grp = (label, right = "") => `<div class="grp"><span>${label}</span><b>${right}</b></div>`;
+const motionRow = () => `<div class="tile swrow"><span><b>Motion: <span data-motion-l>${motionFull() ? "Full" : "Calm"}</span></b><small>${RM ? "Your device asks for less motion, so the loops stay off." : "Full keeps the glass moving. Calm stops the loops."}</small></span><button type="button" class="sw" role="switch" data-act="motion" aria-checked="${motionFull()}" aria-label="Ambient motion"${RM ? " disabled" : ""}></button></div>`;
+const lookBox = () => `${grp("Look", "saved on this device")}<div class="looks" role="group" aria-label="Colour theme">${THEMES.map(t => `<button type="button" class="lkb" data-act="look" data-t="${t[0]}" aria-pressed="${t[0] === lookOf()[0]}" aria-label="${t[1]} look" title="${t[1]}"><span class="thsw" data-th="${t[0]}"></span></button>`).join("")}</div>${motionRow()}`;
 const facts = arr => `<div class="hero-facts mfacts">${arr.map(([l, v]) => `<div class="hf"><span>${l}</span><b>${v}</b></div>`).join("")}</div>`;
 const campBy = () => Object.fromEntries(RAW.camps.map(c => [c.campaign_id, c]));
 const cname = (cb, id) => esc(campName((cb[id] || {}).name || id));
@@ -717,9 +726,12 @@ const DR = {
     return { title, sub: `${list.length} video${list.length === 1 ? "" : "s"}${list.length > 120 ? " · newest 120 shown" : ""} · click one for the client`, html: stackOf(list.slice(0, 120).map(x => dB("client", "c:" + x.client_id, `<span class="it c-orange"><svg><use href="#i-film"/></svg></span><span class="row-main"><b>${esc(cut(x.title || "Video", 70))}</b><small>${esc((cn[x.client_id] || {}).name || "Unknown client")}</small></span><span class="row-end"><small>${dLabel(x.day)}</small></span>`, "tile row")), "No video delivered in this period.") }; },
   item(id) { const x = RAW.todayItems.find(z => String(z.id) === String(id)); if (!x) return { title: "Today", html: empty("This item is gone.") }; return { title: x.title || "Today", sub: `${x.kind}${x.at ? " · " + fDT(x.at) : ""}`, html: `<p class="dr-txt">${esc(x.detail || "No more detail.")}</p>${x.lead_email ? `<div class="stack sp">${lrow({ email: x.lead_email, name: nameOf(x.lead_email) }, "Open the lead")}</div>` : ""}` }; },
   sync() { return { title: "Where the numbers come from", sub: RT === "live" ? "Live connection is up; a full refresh also runs every minute" : "The page refreshes every minute", html: stackOf(RAW.sync.map(s => `<div class="tile pt"><div class="pt-top"><span class="it ${s.ok ? "c-green" : "c-red"}"><svg><use href="#i-${s.ok ? "check" : "alert"}"/></svg></span><span class="row-main"><b>${esc({ instantly: "Sending (Instantly → campaigns, inboxes)", replies: "Replies (mail → reply queue, threads)", sheet: "Samples sheet → pipeline", new_lead_target: "New-lead target" }[s.name] || s.name)}</b><small>ran ${ago(s.ran_at)} · ${fDT(s.ran_at)}</small></span><span class="chip ${s.ok ? "g" : "r"}">${s.ok ? "ok" : "failed"}</span></div><div class="pt-lines"><span>${esc(cut(s.detail, 300))}</span></div></div>`)) }; },
-  me() { return { title: ME ? (ME.name || ME.email) : "You", sub: ME ? ME.email : "", html: `${facts([["Role", "Founder"], ["Connection", RT === "live" ? "Live" : "Polling"], ["Theme", document.documentElement.dataset.theme === "dark" ? "BEJÚ dark" : "Light"]])}
+  me() { return { title: ME ? (ME.name || ME.email) : "You", sub: ME ? ME.email : "", html: `${facts([["Role", "Founder"], ["Connection", RT === "live" ? "Live" : "Polling"], ["Look", `<span data-look-name>${lookOf()[1]}</span>`]])}
+      ${lookBox()}
       ${grp("Shortcuts")}<div class="stack">${[["⌘K / Ctrl K", "Search leads and clients, jump to a card, run an action"], ["/", "Search leads"], ["← →", "In a chart: move through the days. In a lead: previous and next lead of the list"], ["Enter", "Open what is selected"], ["Esc", "Close the top layer"], ["W", "Wall mode"]].map(x => `<div class="tile row"><span class="kbd">${x[0]}</span><span class="row-main"><small>${x[1]}</small></span></div>`).join("")}</div>
-      <div class="acts sp"><a class="act" href="${esc(PORTAL)}">${ic("link")}Client portal</a><a class="act" href="${esc(SITE)}">${ic("link")}Website</a><button type="button" class="act" data-act="theme">${ic("sun")}Switch theme</button><button type="button" class="act" data-act="refresh">${ic("refresh")}Refresh now</button><button type="button" class="act" data-act="chpw">${ic("user")}Change password</button><button type="button" class="act no" data-act="signout">${ic("out")}Sign out</button></div>` }; },
+      <div class="acts sp"><a class="act" href="${esc(PORTAL)}">${ic("link")}Client portal</a><a class="act" href="${esc(SITE)}">${ic("link")}Website</a>${dB("look", "", ic("sun") + "All looks", "act")}<button type="button" class="act" data-act="refresh">${ic("refresh")}Refresh now</button><button type="button" class="act" data-act="chpw">${ic("user")}Change password</button><button type="button" class="act no" data-act="signout">${ic("out")}Sign out</button></div>` }; },
+  look(a) { const first = a === "first"; return { title: first ? "Pick your look" : "Look", sub: first ? "Five kinds of glass. Change it any time from the account menu." : "Saved on this device", html:
+    `<div class="thg" role="group" aria-label="Colour theme">${THEMES.map(t => `<button type="button" class="thp" data-act="look" data-t="${t[0]}" aria-pressed="${t[0] === lookOf()[0]}"><span class="thsw" data-th="${t[0]}" aria-hidden="true"><i></i><i></i><i></i></span><b>${t[1]}</b><small>${t[4]}</small></button>`).join("")}</div>${motionRow()}${first ? `<div class="acts sp"><button type="button" class="act go" data-act="mclose">Done</button></div>` : ""}` }; },
   todaylist() { const I = { call: ["phone", "c-blue"], payment_failed: ["alert", "c-red"], action: ["check", "c-green"], partner: ["flag", "c-orange"] };
     return { title: `Today, ${dLong(D.t)}`, sub: `${D.todayItems.length} items`, html: stackOf(D.todayItems.map(x => { const [icon, c] = I[x.kind] || ["clock", "c-grey"], inner = `<span class="it ${c}"><svg><use href="#i-${icon}"/></svg></span><span class="row-main"><b>${esc(cut(x.title, 90))}</b><small>${esc(cut(x.detail || x.kind, 160))}</small></span>${x.at ? `<span class="row-end"><small>${timeOf(x.at)}</small></span>` : ""}`; return x.lead_email ? leadBtn(x.lead_email, inner) : dB("item", x.id, inner, "tile row"); }), "Nothing on the list for today.") }; },
   next() { return { title: "Do next", sub: `${D.nextN} open action${D.nextN === 1 ? "" : "s"}, best first`, html: stackOf(D.nextAll.map((x, i) => { const inner = `<span class="it ${x.c}"><svg><use href="#i-${x.icon}"/></svg></span><span class="row-main"><b>${esc(cut(x.title, 90))}</b><small>${esc(cut(x.sub, 160))}</small></span><span class="row-end"><small>#${i + 1}</small></span>`; return x.email ? leadBtn(x.email, inner) : dB(x.k, x.a, inner, "tile row"); }), "Nothing is waiting on you.") }; },
@@ -827,7 +839,7 @@ function toast(title, icon = "check", c = "c-green", sub = "") {
 }
 function confetti() {
   if (RM) return; const cv = $("#fx"), ctx = cv.getContext("2d"), dpr = Math.min(2, devicePixelRatio || 1), W = cv.width = innerWidth * dpr, H = cv.height = innerHeight * dpr;
-  const cols = ["#FFD35C", "#44B874", "#F7F5EC", "#D9B45A", "#1C8A57"], ps = Array.from({ length: innerWidth < 600 ? 50 : 110 }, () => ({ x: W * (.5 + (Math.random() - .5) * .2), y: H * .62, vx: (Math.random() - .5) * 22 * dpr, vy: -(10 + Math.random() * 16) * dpr, s: (4 + Math.random() * 6) * dpr, r: Math.random() * 6, vr: (Math.random() - .5) * .4, c: cols[Math.random() * cols.length | 0] }));
+  const cs = getComputedStyle(document.documentElement), cols = ["--signal", "--blue", "--blue-2", "--orange", "--purple"].map(v => cs.getPropertyValue(v).trim() || "#FFD35C"), ps = Array.from({ length: innerWidth < 600 ? 50 : 110 }, () => ({ x: W * (.5 + (Math.random() - .5) * .2), y: H * .62, vx: (Math.random() - .5) * 22 * dpr, vy: -(10 + Math.random() * 16) * dpr, s: (4 + Math.random() * 6) * dpr, r: Math.random() * 6, vr: (Math.random() - .5) * .4, c: cols[Math.random() * cols.length | 0] }));
   const t0 = performance.now(); cv.hidden = false;
   const step = now => { const k = (now - t0) / 1900; ctx.clearRect(0, 0, W, H); if (k >= 1) { cv.hidden = true; return; }
     ps.forEach(p => { p.vy += .55 * dpr; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.r += p.vr; ctx.save(); ctx.globalAlpha = 1 - k * k; ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); ctx.restore(); });
@@ -897,11 +909,10 @@ async function changePw() {   // own account only
 
 /* ---------------- command palette ---------------- */
 let PAL = null;
-function toggleTheme() { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true); renderAll(); }
 function toggleWall() { document.documentElement.classList.toggle("wall"); requestAnimationFrame(() => CARDS.forEach(c => fit(c.el))); }
 function palItems(q) {
   q = lc(q); const cmd = (label, hint, icon, run) => ({ g: "Actions", label, hint, icon, run });
-  const cmds = [cmd("Refresh now", "", "refresh", () => refresh(true)), cmd(document.documentElement.dataset.theme === "dark" ? "Switch to the light theme" : "Switch to BEJÚ dark", "theme", "sun", toggleTheme),
+  const cmds = [cmd("Refresh now", "", "refresh", () => refresh(true)), ...THEMES.map(t => cmd(`Look: ${t[1]}`, t[4] + (t[0] === lookOf()[0] ? " · on now" : ""), "sun", () => setTheme(t[0], true))), cmd(motionFull() ? "Motion: switch to Calm" : "Motion: switch to Full", "ambient motion", "bolt", () => setMotion(motionFull() ? "calm" : "full", true)), cmd("Pick a look", "all five", "sun", () => openDrill("look", "")),
     ...["All", "Simas", "Benas"].map(o => cmd(o === "All" ? "Show everyone's leads" : `Show only ${o}'s leads`, "owner filter", "user", () => { STATE.owner = o; STATE.att = ""; renderAll(); })),
     ...Object.keys(PER).map(p => cmd(`Period: ${PER[p][0]}`, "hero, money, outreach", "clock", () => setPeriod(p))),
     cmd("Export leads CSV", "download", "down", () => { jump("export"); exportCsv(); }), cmd("Open the website", "new tab", "link", () => window.open(SITE, "_blank", "noopener")), cmd("Open the client portal", "new tab", "link", () => window.open(PORTAL, "_blank", "noopener")),
@@ -968,9 +979,38 @@ function onChange(tb, p) {
   clearTimeout(RT_T); RT_T = setTimeout(() => refresh().catch(() => {}), 1500);   // coalesce bursts into one refresh
 }
 
-/* ---------------- theme ---------------- */
-function setTheme(t, save) { document.documentElement.dataset.theme = t; const tc = $('meta[name="theme-color"]'); if (tc) tc.content = t === "dark" ? "#070805" : "#ffffff"; if (save) store.set("beju-crm-skin", t); const sw = $("#sw-theme"); if (sw) sw.setAttribute("aria-checked", t !== "dark"); }
-setTheme(store.get("beju-crm-skin") === "light" ? "light" : "dark");
+/* ---------------- look: five glass themes, motion Full / Calm (both saved on this device) ---------------- */
+function syncLook() {
+  const cur = lookOf(), full = motionFull();
+  $$('[data-act="look"]').forEach(b => b.setAttribute("aria-pressed", b.dataset.t === cur[0]));
+  $$('[data-act="motion"]').forEach(b => { b.setAttribute("aria-checked", full); b.disabled = RM; });
+  $$("[data-look-name]").forEach(x => { x.textContent = cur[1]; }); $$("[data-motion-l]").forEach(x => { x.textContent = full ? "Full" : "Calm"; });
+}
+function setTheme(id, save) {
+  const t = THEMES.find(x => x[0] === id) || THEMES[0], h = document.documentElement;
+  h.dataset.theme = t[0]; h.dataset.mode = t[2];
+  const tc = $('meta[name="theme-color"]'); if (tc) tc.content = t[3];
+  if (save) store.set("beju-crm-look", t[0]); syncLook();
+}
+function setMotion(m, save) { document.documentElement.dataset.motion = RM || m === "calm" ? "calm" : "full"; if (save) store.set("beju-crm-motion", m); syncLook(); }
+const FIRST_LOOK = !store.get("beju-crm-look");   // nothing saved yet: Frost, and offer the picker once after sign-in
+setTheme(store.get("beju-crm-look")); setMotion(store.get("beju-crm-motion"));
+/* Glass costs frames on weak machines. Measure once after the first render; under ~40 frames a second the cards drop the
+   live blur and keep the tint (html.fx-lite). Phones never blur the cards, so there is nothing to measure there. */
+let FXM = false;
+function measureFx() {
+  if (FXM || RM || PHONE.matches) return; FXM = true;
+  setTimeout(() => { if (document.hidden) { FXM = false; return; } let n = 0; const t0 = performance.now();
+    const tick = t => { if (document.hidden) { FXM = false; return; } n++; if (t - t0 < 1500) requestAnimationFrame(tick); else if (n / (t - t0) * 1000 < 40) document.documentElement.classList.add("fx-lite"); };
+    requestAnimationFrame(tick); }, 2600);
+}
+/* Phones that report tilt without a permission prompt (Android) move the hero highlight with the device; elsewhere the sheen sweeps on its own. */
+if (COARSE && !RM && "DeviceOrientationEvent" in window && typeof DeviceOrientationEvent.requestPermission !== "function") {
+  let q = false;
+  addEventListener("deviceorientation", e => { if (e.gamma == null || q || !motionFull()) return; q = true;
+    requestAnimationFrame(() => { q = false; const h = $("#hero"); if (!h) return; document.documentElement.classList.add("tilt-on");
+      h.style.setProperty("--sx", (clamp(e.gamma / 30, -1, 1) * 30).toFixed(1) + "%"); h.style.setProperty("--sy", (clamp((e.beta - 40) / 30, -1, 1) * 18).toFixed(1) + "%"); }); }, { passive: true });
+}
 
 /* ---------------- events ---------------- */
 const layer = () => PAL ? $("#pal") : !$("#dlg").hidden ? $("#dlg") : !$("#drawer").hidden ? $("#drawer") : !$("#veil").hidden ? $("#veil") : null;
@@ -998,7 +1038,8 @@ document.addEventListener("click", ev => {
   else if (a === "day") { STATE.day = b.dataset.d; renderAll(); const nb = $(`[data-act="day"][data-d="${b.dataset.d}"]`); if (nb) nb.focus(); }
   else if (a === "hotall") { STATE.hotAll = !STATE.hotAll; renderAll(); }
   else if (a === "todayall") { STATE.todayAll = !STATE.todayAll; renderAll(); }
-  else if (a === "theme") toggleTheme();
+  else if (a === "look") setTheme(b.dataset.t, true);
+  else if (a === "motion") setMotion(motionFull() ? "calm" : "full", true);
   else if (a === "export") exportCsv();
   else if (a === "refresh") refresh(true).catch(() => {});
   else if (a === "signout") signOut();
@@ -1069,7 +1110,7 @@ setTab(store.get("beju-crm-tab") || "home", true);
 
 /* ---------------- auth gate ---------------- */
 const show = id => { ["boot", "gate", "wait", "app"].forEach(x => { $("#" + x).hidden = x !== id; }); $("#tabs").hidden = id !== "app"; };
-let MODE = "in";
+let MODE = "in", JUST_UP = false;
 function setMode(m) {
   MODE = m; $("#tab-in").classList.toggle("on", m === "in"); $("#tab-up").classList.toggle("on", m === "up");
   $("#tab-in").setAttribute("aria-selected", m === "in"); $("#tab-up").setAttribute("aria-selected", m === "up");
@@ -1090,7 +1131,7 @@ $("#gate-form").addEventListener("submit", async ev => {
       const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { name } } });
       if (error) throw error;
       if (!data.session) { setMode("in"); return msg("Login created. Check your email to confirm it, then log in.", true); }
-      await enter(data.session.user);
+      JUST_UP = true; await enter(data.session.user);
     } else {
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
       if (error) throw error;
@@ -1108,15 +1149,19 @@ async function enter(user) {
     p = await must(sb.from("profiles").select("id,name,email,is_admin").eq("id", user.id).maybeSingle());
     if (!p) await new Promise(r => setTimeout(r, 500));
   }
-  if (!p || p.is_admin !== true) { ME = null; RAW = null; stopLoop(); stopRealtime(); $("#wait-email").textContent = user.email || ""; show("wait"); return; }   // not a founder: fetch nothing else
+  if (!p || p.is_admin !== true) {   // not a founder: fetch nothing else
+    ME = null; RAW = null; stopLoop(); stopRealtime();
+    if (!JUST_UP) { show("boot"); location.replace(PORTAL_HOME); return; }   // a client login belongs in the portal; only someone who just asked for a founder login waits here
+    $("#wait-email").textContent = user.email || ""; show("wait"); return; }
   ME = { ...p, email: user.email || p.email };
   $("#nav-site").href = $("#nav-web").href = SITE; $("#nav-portal").href = PORTAL;
   show("boot"); build(); mountHero();
-  try { await refresh(); show("app"); startLoop(); startRealtime(); requestAnimationFrame(() => CARDS.forEach(c => fit(c.el))); }
+  try { await refresh(); show("app"); startLoop(); startRealtime(); requestAnimationFrame(() => CARDS.forEach(c => fit(c.el))); measureFx();
+    if (FIRST_LOOK && !store.get("beju-crm-look")) { store.set("beju-crm-look", lookOf()[0]); openDrill("look", "first"); } }
   catch (e) { show("gate"); msg("Couldn't load the CRM data. Check your connection and log in again."); }
 }
 async function signOut() { stopLoop(); stopRealtime(); closePal(); if (ASK) ASK.done(null); closeLead(); closeDrill(); try { await sb.auth.signOut(); } catch {} ME = RAW = D = null; PREV.clear(); feedSeen.clear(); $("#grid").innerHTML = $("#grid2").innerHTML = $("#hero").innerHTML = ""; setMode("in"); show("gate"); }
-$("#wait-out").addEventListener("click", signOut);
+$("#wait-out").addEventListener("click", signOut); $("#wait-portal").href = PORTAL_HOME;
 $("#wait-check").addEventListener("click", async () => { const { data } = await sb.auth.getSession(); if (data.session) enter(data.session.user).catch(() => {}); else show("gate"); });
 
 /* ---------------- boot ---------------- */

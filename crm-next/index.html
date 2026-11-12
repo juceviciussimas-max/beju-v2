@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="frost" data-mode="light" data-motion="full">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src https://zfnpvcrnujxlycmqukqs.supabase.co wss://zfnpvcrnujxlycmqukqs.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="robots" content="noindex,nofollow">
-<meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#070805">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#eef1f8">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="BEJÚ">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
@@ -17,7 +17,8 @@
 <link rel="icon" href="../favicon.ico">
 <link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="crm.css?v=20261112h">
+<script src="theme.js?v=20261112j"></script>
+<link rel="stylesheet" href="crm.css?v=20261112j">
 </head>
 <body>
 <svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
@@ -71,9 +72,9 @@
   <div class="gate-card">
     <div class="brandrow"><span class="logo"><img src="../beju-mark-sm.png" alt="" width="34" height="20"></span><div><b>Beju Creative</b><small>Founder <em class="sf">CRM</em></small></div></div>
     <h1 class="wait-h">This area is for the BEJÚ founders.</h1>
-    <p class="wait-p">Ask Simas to approve your account. Until then this page shows nothing.</p>
+    <p class="wait-p">Ask Simas to approve your account. Until then this page shows nothing. Your videos and orders are in the client portal.</p>
     <div class="tile wait-me"><span class="mut">Signed in as</span><b id="wait-email"></b></div>
-    <div class="wait-row"><button class="btn-ghost" id="wait-check" type="button">Check again</button><button class="btn-go" id="wait-out" type="button">Sign out</button></div>
+    <div class="wait-row"><a class="btn-go" id="wait-portal" href="https://bejucreative.digital/portal/">Go to the client portal</a><button class="btn-ghost" id="wait-check" type="button">Check again</button><button class="btn-ghost" id="wait-out" type="button">Sign out</button></div>
   </div>
 </main>
 
@@ -90,9 +91,9 @@
     <div class="top-tools">
       <button type="button" class="pal-btn" data-act="palette" aria-label="Search or jump (Command K)" title="Search leads, jump to a card, run an action"><svg aria-hidden="true"><use href="#i-search"/></svg><span>Search or jump</span><kbd class="kbd">⌘K</kbd></button>
       <button type="button" class="stat" id="stat" data-act="drill" data-k="sync" data-a=""><i class="pulse" id="stat-p"></i><b id="stat-t">Live</b><small id="stat-s"></small></button>
-      <button type="button" class="icon-btn hide-ph" data-act="theme" aria-label="Switch between BEJÚ dark and light" title="Switch theme"><svg><use href="#i-sun"/></svg></button>
+      <button type="button" class="icon-btn hide-ph" data-act="drill" data-k="look" data-a="" aria-label="Look: colour theme and motion" title="Look"><svg><use href="#i-sun"/></svg></button>
       <button type="button" class="icon-btn hide-ph" data-act="refresh" aria-label="Refresh now" title="Refresh now"><svg><use href="#i-refresh"/></svg></button>
-      <button type="button" class="icon-btn" data-act="drill" data-k="me" data-a="" aria-label="Your account: website, client portal, theme, password, sign out" title="Account"><svg><use href="#i-user"/></svg></button>
+      <button type="button" class="icon-btn" data-act="drill" data-k="me" data-a="" aria-label="Your account: website, client portal, look, motion, password, sign out" title="Account"><svg><use href="#i-user"/></svg></button>
       <button type="button" class="icon-btn hide-ph" data-act="signout" aria-label="Sign out" title="Sign out"><svg><use href="#i-out"/></svg></button>
     </div>
   </header>
@@ -147,7 +148,7 @@
 <noscript><p class="gate">This page needs JavaScript turned on.</p></noscript>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
-<script src="config.js?v=20261112h"></script>
-<script src="crm.js?v=20261112h"></script>
+<script src="config.js?v=20261112j"></script>
+<script src="crm.js?v=20261112j"></script>
 </body>
 </html>
