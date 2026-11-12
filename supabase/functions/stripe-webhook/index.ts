@@ -1,4 +1,5 @@
-// Stripe → BEJÚ CRM + portal credits. Stripe calls this on checkout.session.completed (any of our payment links).
+// Stripe → BEJÚ CRM + portal credits. Stripe calls this on checkout.session.completed (any of our payment links)
+// and, since 11-11 (portal v1), on invoice.paid so every monthly renewal refills that month's credits.
 // 1. find or create the client (by email, else by name), 2. record the payment (keyed by Stripe charge id, so the
 // hourly crm_sync.py never duplicates it), 3. if the payer has a portal account (client_reference_id from the portal's
 // buy button, else the same email) and the link is a Shorts pack (metadata.package short_N), add N credits.
@@ -18,6 +19,7 @@ Deno.serve(async (req) => {
   } catch (_) {
     return new Response("bad signature", { status: 400 });
   }
+  if (event.type === "invoice.paid") return await renewal(event.data.object as Stripe.Invoice);
   if (event.type !== "checkout.session.completed") return new Response("ignored");
   const s = event.data.object as Stripe.Checkout.Session;
   if (s.payment_status !== "paid") return new Response("not paid");
@@ -48,15 +50,46 @@ Deno.serve(async (req) => {
   // portal credits for Shorts packs
   let uid: string | null = s.client_reference_id && UUID.test(s.client_reference_id) ? s.client_reference_id : null;
   if (uid && !(await sb.from("profiles").select("id").eq("id", uid).limit(1)).data?.length) uid = null;
-  if (!uid && email) uid = (await sb.from("profiles").select("id").eq("email", email).limit(1)).data?.[0]?.id ?? null;
+  // SECURITY 11-12: no matching a portal account by email alone. Email confirmation is off (mailer_autoconfirm), so
+  // anyone could sign up with a client's address first and receive that client's credits. Credits now go only to the
+  // logged-in buyer (client_reference_id from the portal's buy button); other packs are flagged for a founder below.
   // 11-08: new menu packages carry the price (short_5_150) and monthly plans give a month of Shorts
   const PLAN: Record<string, number> = { monthly_growth_300: 15, monthly_eod_300: 15, monthly_daily_400: 30, monthly_daily_500: 30, monthly_2day_600: 60, dfy_daily_600: 30, dfy_max_growth_1000: 60 };
   const sm = /^short_(\d+)(?:_\d+)?$/.exec(pkg), n = sm ? Number(sm[1]) : (PLAN[pkg] ?? 0);
   const m = n ? [pkg, String(n)] : null;
   if (uid && m) {
-    await sb.from("purchases").upsert({ user_id: uid, pack_id: pkg, videos: Number(m[1]), amount: (s.amount_total ?? 0) / 100, stripe_session: s.id },
+    // 11-11: every pack is used within 30 days (SIMAS); a monthly plan keeps its subscription id so renewals refill it
+    await sb.from("purchases").upsert({ user_id: uid, pack_id: pkg, videos: Number(m[1]), amount: (s.amount_total ?? 0) / 100, stripe_session: s.id,
+                                        stripe_sub: typeof s.subscription === "string" ? s.subscription : null,
+                                        expires_at: new Date(Date.now() + 30 * 864e5).toISOString() },
                                       { onConflict: "stripe_session" });
+  }
+  if (!uid && email && m) {   // paid from an email link: a founder credits the right portal account in the CRM (Add a pack)
+    await sb.from("today_items").upsert({ id: `unmatched-${s.id}`, day: new Date().toISOString().slice(0, 10), kind: "action",
+      title: `Pack paid without a portal login: ${email}`, detail: `${pkg} · $${(s.amount_total ?? 0) / 100}. If they have a portal account, credit it in the CRM (Add a pack).`,
+      at: new Date().toISOString(), lead_email: email }, { onConflict: "id" });
   }
   if (uid && client && !client.user_id) await sb.from("clients").update({ user_id: uid }).eq("id", client.id);
   return new Response("ok");
 });
+
+// Monthly plans: Stripe bills again each month (billing_reason "subscription_cycle"). The first invoice is already
+// covered by checkout.session.completed above. Find the plan's first purchase by subscription id and add a fresh
+// month of credits, once per invoice.
+async function renewal(inv: Stripe.Invoice): Promise<Response> {
+  if (inv.billing_reason !== "subscription_cycle") return new Response("not a renewal");
+  const sub = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id;
+  if (!sub) return new Response("no subscription");
+  if ((await sb.from("purchases").select("id").eq("stripe_invoice", inv.id).limit(1)).data?.length) return new Response("already added");
+  const first = (await sb.from("purchases").select("*").eq("stripe_sub", sub).order("created_at", { ascending: true }).limit(1)).data?.[0];
+  const email = (inv.customer_email ?? "").toLowerCase();
+  if (typeof inv.charge === "string") {
+    await sb.from("payments").upsert({ id: inv.charge, email: email || null, payer_name: inv.customer_name || email || "Unknown payer",
+      amount: (inv.amount_paid ?? 0) / 100, currency: inv.currency ?? "usd", package: first?.pack_id ?? null,
+      paid_at: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString() });
+  }
+  if (!first) return new Response("renewal for a plan with no portal account");
+  await sb.from("purchases").insert({ user_id: first.user_id, pack_id: first.pack_id, videos: first.videos, amount: (inv.amount_paid ?? 0) / 100,
+    stripe_sub: sub, stripe_invoice: inv.id, expires_at: new Date(Date.now() + 30 * 864e5).toISOString() });
+  return new Response("ok");
+}
