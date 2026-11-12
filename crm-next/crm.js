@@ -99,7 +99,7 @@ async function fetchAll() {
     all("sample_requests", "*", q => q.order("created_at", { ascending: false })),
     all("videos", "id,user_id,purchase_id,title,notes,footage,status,result_url,created_at,delivered_at,due_at,version", q => q.order("created_at", { ascending: false })),
     all("purchases", "id,user_id,pack_id,videos,amount,created_at,expires_at"),
-    all("video_notes", "id,video_id,user_id,at,text,created_at,round,done_at", q => q.order("created_at", { ascending: false })),
+    all("video_notes", "id,video_id,user_id,at,text,created_at,round,done_at,parent_id,author_role,author_name", q => q.order("created_at", { ascending: false })),
     all("lead_adds", "day,tab,n", q => q.gte("day", addDays(t, -21))),
     all("threads", "lead_email,at,direction", q => q.order("at").order("msg_id")),   // light copy of every message: counts per lead + speed to reply
     all("interested_leads", "*", q => q.order("email")),   // 11-12: every lead Instantly marks Interested = hot
@@ -249,7 +249,7 @@ function derive() {
   });
   const SORD = { requested: 0, accepted: 1, building: 2, ready: 3, declined: 4 }, VORD = { revision: 0, received: 1, editing: 2, ready: 3, approved: 4 };
   d.pSamples = R.sampleReq.map(s => ({ ...s, who: who(s.user_id), hist: hist((users[s.user_id] || {}).email) })).sort((a, b) => (SORD[a.status] ?? 9) - (SORD[b.status] ?? 9) || +new Date(b.created_at) - +new Date(a.created_at));
-  const openNotes = R.vnotes.filter(n => !n.done_at);
+  const openNotes = R.vnotes.filter(n => !n.done_at && n.author_role !== "team");
   d.pVideos = R.videos.map(v => ({ ...v, who: who(v.user_id), open: openNotes.filter(n => n.video_id === v.id).length })).sort((a, b) => (VORD[a.status] ?? 9) - (VORD[b.status] ?? 9) || +new Date(b.created_at) - +new Date(a.created_at));
   const groups = {}; openNotes.forEach(n => { const k = n.video_id + ":" + (n.round || 1); (groups[k] || (groups[k] = { video: R.videos.find(v => v.id === n.video_id) || { id: n.video_id, title: "Video" }, round: n.round || 1, who: who(n.user_id), notes: [] })).notes.push(n); });
   d.pNotes = Object.values(groups).map(g => ({ ...g, notes: g.notes.sort((a, b) => (+a.at || 0) - (+b.at || 0)) }));
@@ -364,11 +364,11 @@ const sampleTile = s => { const A = { requested: [["s-accept", "Accept", "go"], 
 const videoTile = v => { const A = { received: [["v-editing", "Mark editing"], ["v-deliver", "Deliver", "go"]], editing: [["v-deliver", "Deliver", "go"]], revision: [["v-editing", "Mark editing"], ["v-deliver", "Deliver new version", "go"]], ready: [["v-deliver", "Deliver new version"]] }[v.status] || [], ru = webUrl(v.result_url), links = linkify(v.footage);
   return `<div class="tile pt"><div class="pt-top">${dB("client", "e:" + lc(v.who.email), `<span class="it c-purple"><svg><use href="#i-play"/></svg></span>`, "itb", "Open this client")}<span class="row-main">${dB("client", "e:" + lc(v.who.email), esc(v.title || "Untitled video"), "vtb", "Open this client")}<small>${dB("client", "e:" + lc(v.who.email), esc(v.who.name), "lk", "Open this client")}</small></span>${dB("client", "e:" + lc(v.who.email), `${esc(v.status)}${v.version ? ` · v${+v.version}` : ""}`, `chip ${VCHIP[v.status] || ""}`, "Open this client")}</div>
   <div class="pt-meta">${dueChip(/^(ready|approved)$/.test(v.status) ? null : v.due_at)}<span class="due">asked ${relA(+new Date(v.created_at))}</span>${v.open ? `<span class="chip r">${v.open} open change${v.open === 1 ? "" : "s"}</span>` : ""}</div>
-  <div class="pt-lines"><span><b>Footage</b> ${links || esc(cut(v.footage || "none sent", 80))}</span>${v.notes ? `<span><b>Notes</b> ${esc(cut(v.notes, 200))}</span>` : ""}${ru ? `<span><b>Delivered</b> ${ext(ru)}${v.delivered_at ? ` · ${fDT(v.delivered_at)}` : ""}</span>` : ""}</div>
+  <div class="pt-lines"><span><b>Footage</b> ${links || esc(cut(v.footage || "none sent", 80))}</span>${v.notes ? `<span><b>Notes</b> ${esc(cut(v.notes, 200))}</span>` : ""}${ru ? `<span><b>Delivered</b> ${ext(ru)}${v.delivered_at ? ` · ${fDT(v.delivered_at)}` : ""}</span>` : v.result_url ? `<span><b>Delivered</b> review copy v${+v.version || 1} uploaded${v.delivered_at ? ` · ${fDT(v.delivered_at)}` : ""}</span>` : ""}</div>
   ${A.length ? `<div class="acts">${A.map(a => act(a[0], v.id, a[1], a[2] || "")).join("")}</div>` : ""}</div>`; };
 const mmss = s => { s = Math.max(0, Math.round(+s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const noteTile = g => `<div class="tile pt"><div class="pt-top">${dB("pvideos", "", `<span class="it c-red"><svg><use href="#i-alert"/></svg></span>`, "itb", "Open the video requests")}<span class="row-main">${dB("pvideos", "", esc(g.video.title || "Untitled video"), "vtb", "Open the video requests")}<small>${dB("client", "e:" + lc(g.who.email), esc(g.who.name), "lk", "Open this client")} · round ${g.round}</small></span>${dB("pvideos", "", g.notes.length, "chip r", "Open the video requests")}</div>
-  <div class="pt-lines">${g.notes.map(n => `<span><b>${mmss(n.at)}</b> ${esc(cut(n.text, 220))} <b>· ${fDT(n.created_at)}</b></span>`).join("")}</div>
+  <div class="pt-lines">${g.notes.map(n => `<span><b>${mmss(n.at)}</b> ${esc(cut(n.text, 220))} <b>· ${fDT(n.created_at)}</b>${(RAW.vnotes || []).filter(r => r.parent_id === n.id).map(r => `<span class="reply-l"><b>${r.author_role === "team" ? esc(r.author_name || "Team") : "Client"}:</b> ${esc(cut(r.text, 180))}</span>`).join("")} ${act("n-reply", n.id, "Reply")}</span>`).join("")}</div>
   <div class="acts">${act("v-editing", g.video.id, "Mark editing")}${act("v-deliver", g.video.id, "Deliver new version", "go")}</div></div>`;
 const feedSeen = new Set();
 const feedRow = (e, fresh) => { const inner = `<span class="it ${e.c}"><svg><use href="#i-${e.icon}"/></svg></span><span class="fe-m"><b>${esc(cut(e.title, 64))}</b><small>${esc(cut(e.sub, 80))}</small></span><time>${e.dateOnly ? dLabel(dayOf(e.t)) : rel(e.t)}</time>`;
@@ -738,7 +738,7 @@ const DR = {
   me() { return { title: ME ? (ME.name || ME.email) : "You", sub: ME ? ME.email : "", html: `${facts([["Role", "Founder"], ["Connection", RT === "live" ? "Live" : "Polling"], ["Look", `<span data-look-name>${lookOf()[1]}</span>`]])}
       ${lookBox()}
       ${grp("Shortcuts")}<div class="stack">${[["⌘K / Ctrl K", "Search leads and clients, jump to a card, run an action"], ["/", "Search leads"], ["← →", "In a chart: move through the days. In a lead: previous and next lead of the list"], ["Enter", "Open what is selected"], ["Esc", "Close the top layer"], ["W", "Wall mode"]].map(x => `<div class="tile row"><span class="kbd">${x[0]}</span><span class="row-main"><small>${x[1]}</small></span></div>`).join("")}</div>
-      <div class="acts sp"><a class="act" href="${esc(PORTAL)}">${ic("link")}Client portal</a><a class="act" href="${esc(SITE)}">${ic("link")}Website</a>${dB("look", "", ic("sun") + "All looks", "act")}<button type="button" class="act" data-act="refresh">${ic("refresh")}Refresh now</button><button type="button" class="act" data-act="chpw">${ic("user")}Change password</button><button type="button" class="act no" data-act="signout">${ic("out")}Sign out</button></div>` }; },
+      <div class="acts sp"><a class="act" href="${esc(PORTAL)}">${ic("link")}Client portal</a><a class="act" href="${esc(SITE)}">${ic("link")}Website</a>${dB("look", "", ic("sun") + "All looks", "act")}<button type="button" class="act" data-act="refresh">${ic("refresh")}Refresh now</button><button type="button" class="act" data-act="chpw">${ic("user")}Change password</button><button type="button" class="act" data-act="mfa">${ic("check")}2-step login</button><button type="button" class="act no" data-act="signout">${ic("out")}Sign out</button></div>` }; },
   look(a) { const first = a === "first"; return { title: first ? "Pick your look" : "Look", sub: first ? "Five kinds of glass. Change it any time from the account menu." : "Saved on this device", html:
     `<div class="thg" role="group" aria-label="Colour theme">${THEMES.map(t => `<button type="button" class="thp" data-act="look" data-t="${t[0]}" aria-pressed="${t[0] === lookOf()[0]}"><span class="thsw" data-th="${t[0]}" aria-hidden="true"><i></i><i></i><i></i></span><b>${t[1]}</b><small>${t[4]}</small></button>`).join("")}</div>${motionRow()}${first ? `<div class="acts sp"><button type="button" class="act go" data-act="mclose">Done</button></div>` : ""}` }; },
   todaylist() { const I = { call: ["phone", "c-blue"], payment_failed: ["alert", "c-red"], action: ["check", "c-green"], partner: ["flag", "c-orange"] };
@@ -863,20 +863,27 @@ function ask({ title, sees, warn = "", fields = [], cta = "Confirm", danger = fa
   return new Promise(resolve => {
     const d = $("#dlg"), prev = document.activeElement;
     $("#dlg-body").innerHTML = `<h2 id="dlg-title">${esc(title)}</h2>${warn ? `<p class="warn">${esc(warn)}</p>` : ""}<div class="sees"><small>What the client sees</small>${esc(sees)}</div>
-      ${fields.map(f => `<label class="fld"><span>${esc(f.label)}</span>${f.type === "select" ? `<select data-k="${f.k}">${f.opts.map(o => `<option value="${esc(o[0])}">${esc(o[1])}</option>`).join("")}</select>` : f.type === "area" ? `<textarea data-k="${f.k}" maxlength="${f.max || 500}" placeholder="${esc(f.ph || "")}"></textarea>` : `<input data-k="${f.k}" type="${f.type === "num" ? "number" : f.type === "url" ? "url" : f.type === "pass" ? "password" : "text"}" ${f.type === "pass" ? 'autocomplete="new-password" autocapitalize="none" spellcheck="false"' : f.type === "url" ? 'inputmode="url" autocapitalize="none" autocomplete="off"' : ""} ${f.type === "num" ? `min="${f.min ?? 0}" step="1" inputmode="numeric"` : `maxlength="${f.max || 500}"`} value="${esc(f.val ?? "")}" placeholder="${esc(f.ph || "")}">`}</label>`).join("")}
+      ${fields.map(f => `<label class="fld"><span>${esc(f.label)}</span>${f.type === "select" ? `<select data-k="${f.k}">${f.opts.map(o => `<option value="${esc(o[0])}">${esc(o[1])}</option>`).join("")}</select>` : f.type === "area" ? `<textarea data-k="${f.k}" maxlength="${f.max || 500}" placeholder="${esc(f.ph || "")}"></textarea>` : f.type === "file" ? `<input data-k="${f.k}" type="file" accept="video/mp4,video/quicktime,video/webm">` : `<input data-k="${f.k}" type="${f.type === "num" ? "number" : f.type === "url" ? "url" : f.type === "pass" ? "password" : "text"}" ${f.type === "pass" ? 'autocomplete="new-password" autocapitalize="none" spellcheck="false"' : f.type === "url" ? 'inputmode="url" autocapitalize="none" autocomplete="off"' : ""} ${f.type === "num" ? `min="${f.min ?? 0}" step="1" inputmode="numeric"` : `maxlength="${f.max || 500}"`} value="${esc(f.val ?? "")}" placeholder="${esc(f.ph || "")}">`}</label>`).join("")}
       <p class="dlg-err" id="dlg-err" role="alert" hidden></p><div class="dlg-row"><button type="button" class="btn-ghost" data-act="dlg-no">Cancel</button><button type="submit" class="btn-go mag${danger ? " danger" : ""}">${esc(cta)}</button></div>`;
+    $("#dlg-body").oninput = $("#dlg-body").onchange = () => { const e = $("#dlg-err"); if (e) e.hidden = true; };   // a fixed field clears the old error
     ASK = { fields, done: v => { ASK = null; d.hidden = true; if (prev && prev.isConnected) prev.focus(); resolve(v); } };
     d.hidden = false; const first = $("input,select,textarea", d) || $(".btn-go", d); first.focus();
   });
 }
 function askSubmit() {
   if (!ASK) return; const out = {}, err = $("#dlg-err");
-  for (const f of ASK.fields) { let v = ($(`[data-k="${f.k}"]`, $("#dlg")).value || "").trim();
-    if (f.type === "url") { const u = webUrl(v); if (!u) { err.hidden = false; err.textContent = "Paste a full link that starts with https:// or http://."; return; } v = u; }
+  for (const f of ASK.fields) { const el = $(`[data-k="${f.k}"]`, $("#dlg"));
+    if (f.type === "file") { const file = el.files && el.files[0] || null;
+      if (file && !/^video\/(mp4|quicktime|webm)$/.test(file.type)) { err.hidden = false; err.textContent = "The review copy must be an MP4, MOV or WebM video."; return; }
+      if (file && file.size > 50 * 1024 * 1024) { err.hidden = false; err.textContent = "The review copy is over 50 MB. Export a 720p copy for review."; return; }
+      out[f.k] = file; continue; }
+    let v = (el.value || "").trim();
+    if (f.type === "url" && v) { const u = webUrl(v); if (!u) { err.hidden = false; err.textContent = "Paste a full link that starts with https:// or http://."; return; } v = u; }
     if (f.type === "num") { v = Math.round(+v); if (!isFinite(v) || v < (f.min ?? 0)) { err.hidden = false; err.textContent = `${f.label}: enter a number of ${f.min ?? 0} or more.`; return; } }
     if (f.type === "pass") { v = $(`[data-k="${f.k}"]`, $("#dlg")).value; if (v.length < 10) { err.hidden = false; err.textContent = "Use at least 10 characters."; return; } if (f.same && v !== out[f.same]) { err.hidden = false; err.textContent = "The two passwords are not the same."; return; } }
     if (f.req && !v) { err.hidden = false; err.textContent = `${f.label} is needed.`; return; }
     out[f.k] = v; }
+  for (const f of ASK.fields) if (f.either && !out[f.k] && !out[f.either]) { err.hidden = false; err.textContent = "Choose a review copy file or paste a link (or both)."; return; }
   ASK.done(out);
 }
 const upd = async (table, id, body) => { const rows = await must(sb.from(table).update(body).eq("id", id).select("id")); if (!rows.length) throw new Error("Nothing changed: the row is gone or this login may not edit it."); };
@@ -897,11 +904,20 @@ async function pOp(op, id, btn) {
     else if (op === "v-editing" && v) { const r = await ask({ title: `Mark “${cut(v.title || "this video", 40)}” as in edit?`, sees: `${v.who.name}'s portal shows "In edit" for this video.`, cta: "Mark editing" }); if (!r) return;
       await upd("videos", id, { status: "editing" }); toast("Video marked in edit", "check", "c-green", v.title || ""); }
     else if (op === "v-deliver" && v) { const next = (+v.version || 0) + 1;
-      const r = await ask({ title: `Deliver v${next} of “${cut(v.title || "this video", 40)}”?`, sees: `${v.who.name}'s portal shows "Ready for you" with version ${next} and this link.${v.open ? ` Their ${v.open} open change request${v.open === 1 ? " is" : "s are"} marked done.` : ""}`, fields: [{ k: "link", label: "Link to the finished video", type: "url", req: true, ph: "https://drive.google.com/…" }, { k: "note", label: "What changed (optional, the client reads it)", type: "area", max: 400 }], cta: `Deliver v${next}` }); if (!r) return;
-      const cur = await must(sb.from("videos").select("version").eq("id", id).single()), n = (+cur.version || 0) + 1;
-      await must(sb.from("video_versions").insert({ video_id: id, version: n, url: r.link, note: r.note || null }));
+      const r = await ask({ title: `Deliver v${next} of “${cut(v.title || "this video", 40)}”?`, sees: `${v.who.name}'s portal shows "Ready for review" with version ${next}. An uploaded review copy plays in their review room, where they can leave notes on the exact frame; a link opens as a preview.${v.open ? ` Their ${v.open} open change request${v.open === 1 ? " is" : "s are"} marked done.` : ""}`, fields: [{ k: "file", label: "Review copy (MP4/MOV/WebM, 720p, up to 50 MB)", type: "file", either: "link" }, { k: "link", label: "Link to the full-quality file (optional with an upload)", type: "url", either: "file", ph: "https://drive.google.com/…" }, { k: "note", label: "What changed (optional, the client reads it)", type: "area", max: 400 }], cta: `Deliver v${next}` }); if (!r) return;
+      const cur = await must(sb.from("videos").select("version,user_id").eq("id", id).single()), n = (+cur.version || 0) + 1;
+      let path = null;
+      if (r.file) { const ext = r.file.type === "video/quicktime" ? "mov" : r.file.type === "video/webm" ? "webm" : "mp4";
+        path = `${cur.user_id}/${id}/v${n}-${Math.random().toString(36).slice(2, 8)}.${ext}`;   // the client's own private folder; the database checks the path
+        if (btn) btn.textContent = "Uploading…";
+        const { error: upErr } = await sb.storage.from("finished").upload(path, r.file, { contentType: r.file.type, upsert: false, cacheControl: "3600" });
+        if (upErr) throw upErr; }
+      await must(sb.from("video_versions").insert({ video_id: id, version: n, url: r.link || path, storage_path: path, note: r.note || null }));
       await must(sb.from("video_notes").update({ done_at: nowIso() }).eq("video_id", id).is("done_at", null));
-      await upd("videos", id, { status: "ready", result_url: r.link, delivered_at: nowIso(), version: n, due_at: null }); toast(`Delivered v${n}`, "check", "c-green", v.title || ""); }
+      await upd("videos", id, { status: "ready", result_url: r.link || path, delivered_at: nowIso(), version: n, due_at: null }); toast(`Delivered v${n}`, "check", "c-green", v.title || ""); }
+    else if (op === "n-reply") { const n = RAW.vnotes.find(x => x.id === id); if (!n) return; const vid = RAW.videos.find(x => x.id === n.video_id) || {};
+      const r = await ask({ title: `Reply to the note at ${mmss(n.at)}`, sees: `Their review room shows your reply under this note, with your name and "BEJÚ team". Their note: “${cut(n.text, 160)}”`, fields: [{ k: "text", label: "Your reply", type: "area", max: 1000, req: true }], cta: "Send reply" }); if (!r) return;
+      await must(sb.from("video_notes").insert({ video_id: n.video_id, user_id: ME.id, parent_id: n.id, at: n.at || 0, text: r.text })); toast("Reply sent", "check", "c-green", vid.title || ""); }
     else if (op === "pack" && c) { const r = await ask({ title: `Add a pack for ${c.name || c.email}?`, sees: `Their portal shows the new credits at once, valid for 30 days. Use this only for someone who paid outside the portal; no money is charged here.`, fields: [{ k: "pack", label: "Pack", type: "select", opts: PACKS.map(p => [p[0], p[1]]) }, { k: "videos", label: "Videos (credits)", type: "num", min: 1, val: 5, req: true }, { k: "amount", label: "Amount paid, USD", type: "num", min: 0, val: 150, req: true }], cta: "Add the pack" }); if (!r) return;
       await must(sb.from("purchases").insert({ user_id: c.id, pack_id: r.pack, videos: r.videos, amount: r.amount })); toast(`${r.videos} credits added`, "check", "c-green", c.name || c.email); }
     else return;
@@ -1039,6 +1055,7 @@ document.addEventListener("click", ev => {
   else if (a === "period") setPeriod(b.dataset.p);
   else if (a === "tab") setTab(b.dataset.t);
   else if (a === "chpw") changePw();
+  else if (a === "mfa") mfaManage();
   else if (a === "pernext") { const o = Object.keys(PER); setPeriod(o[(o.indexOf(STATE.period) + 1) % o.length]); const nb = $('[data-act="pernext"]'); if (nb) nb.focus(); }
   else if (a === "msgmore") { const t = b.previousElementSibling, open = t.classList.toggle("clamp") === false; b.textContent = open ? "Show less" : "Show more"; b.setAttribute("aria-expanded", open); }
   else if (a === "convjump") { const w = b.closest(".cvw"), last = w && $(".conv", w).lastElementChild; if (last) { last.scrollIntoView({ block: "end", behavior: RM ? "auto" : "smooth" }); last.classList.remove("flashm"); void last.offsetWidth; last.classList.add("flashm"); } }
@@ -1119,8 +1136,81 @@ const VV = window.visualViewport, setVV = () => document.documentElement.style.s
 document.addEventListener("visibilitychange", () => document.documentElement.classList.toggle("paused", document.hidden));
 setTab(store.get("beju-crm-tab") || "home", true);
 
+/* ---------------- founder 2-step login (TOTP; SIMAS 11-12 "make it very safe") ----------------
+   The CRM asks for the authenticator code before it loads any data. Until crm_mfa_enforce.sql is applied, the
+   database itself still accepts a password-only founder session: this gate is the page's side of the lock. */
+const MFA_LATER = "beju-crm-mfa-later";
+function mfaScreen(html) { $("#mfa-card").innerHTML = html; show("mfa"); const i = $("#mfa-code"); if (i) setTimeout(() => i.focus(), 40); }
+const mfaMsg = (t, ok) => { const el = $("#mfa-msg"); if (!el) return; el.hidden = !t; el.textContent = t || ""; el.classList.toggle("ok", !!ok); };
+const qrSrc = q => { q = String(q || ""); if (q.startsWith("data:")) { const i = q.indexOf(","); return q.slice(0, i + 1).replace(/;utf-8,$/, ";charset=utf-8,") + encodeURIComponent(decodeURIComponentSafe(q.slice(i + 1))); } return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(q); };
+function decodeURIComponentSafe(x) { try { return decodeURIComponent(x); } catch { return x; } }
+const codeField = `<label class="fld"><span>6-digit code from your authenticator app</span><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" required></label>`;
+async function mfaGate() {
+  const { data: aal, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw error;
+  if (aal.currentLevel === "aal2") return true;
+  const { data: f, error: e2 } = await sb.auth.mfa.listFactors(); if (e2) throw e2;
+  const ok = (f.totp || []).filter(x => x.status === "verified");
+  if (ok.length) return mfaChallenge(ok[0]);
+  let later = false; try { later = sessionStorage.getItem(MFA_LATER) === "1"; } catch {}
+  return later ? true : mfaEnroll(true);
+}
+function mfaChallenge(factor) {
+  return new Promise(resolve => {
+    mfaScreen(`<div class="brandrow"><span class="logo"><img src="../beju-mark-sm.png" alt="" width="34" height="20"></span><div><b>Beju Creative</b><small>Founder <em class="sf">CRM</em></small></div></div>
+      <h1 class="wait-h">Enter your code</h1><p class="wait-p">Open your authenticator app and type the 6-digit code for BEJÚ. The CRM stays locked until you do.</p>
+      <form id="mfa-form" novalidate>${codeField}<p class="gate-msg" id="mfa-msg" role="alert" hidden></p>
+      <button class="btn-go mag" type="submit">Unlock the CRM</button></form>
+      <div class="wait-row"><button class="btn-ghost" type="button" id="mfa-out">Sign out</button></div>`);
+    $("#mfa-form").onsubmit = async ev => { ev.preventDefault(); const code = $("#mfa-code").value.replace(/\D/g, "");
+      if (code.length !== 6) return mfaMsg("Enter the 6 digits from the app.");
+      const b = $("#mfa-form .btn-go"); b.disabled = true; mfaMsg("");
+      const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: factor.id, code });
+      b.disabled = false;
+      if (error) { $("#mfa-code").value = ""; $("#mfa-code").focus(); return mfaMsg(/rate|too many/i.test(error.message) ? "Too many tries. Wait a minute." : "That code didn't work. Codes change every 30 seconds: use the newest one."); }
+      resolve(true); };
+    $("#mfa-out").onclick = () => { resolve(false); signOut(); };
+  });
+}
+async function mfaEnroll(gateMode) {
+  const { data: f } = await sb.auth.mfa.listFactors();   // remove a half-finished set-up first
+  for (const x of ((f && f.all) || []).filter(x => x.factor_type === "totp" && x.status !== "verified")) { try { await sb.auth.mfa.unenroll({ factorId: x.id }); } catch {} }
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: `BEJÚ CRM ${new Date().toISOString().slice(0, 16)}` });
+  if (error) throw error;
+  return new Promise(resolve => {
+    mfaScreen(`<div class="brandrow"><span class="logo"><img src="../beju-mark-sm.png" alt="" width="34" height="20"></span><div><b>Beju Creative</b><small>Founder <em class="sf">CRM</em></small></div></div>
+      <h1 class="wait-h">Turn on 2-step login</h1>
+      <p class="wait-p">This CRM can change client data. With 2-step login, a stolen password alone can't open it.</p>
+      <ol class="mfa-steps"><li>Open an authenticator app (Google Authenticator, 1Password, Authy…).</li><li>Scan this code, or type the key by hand.</li><li>Enter the 6-digit code it shows.</li></ol>
+      <div class="mfa-qr"><img id="mfa-qr" alt="QR code for your authenticator app" width="180" height="180"><div><span class="mut">Key</span><code id="mfa-secret"></code></div></div>
+      <form id="mfa-form" novalidate>${codeField}<p class="gate-msg" id="mfa-msg" role="alert" hidden></p>
+      <button class="btn-go mag" type="submit">Turn it on</button></form>
+      <div class="wait-row">${gateMode ? `<button class="btn-ghost" type="button" id="mfa-later">Not now</button><button class="btn-ghost" type="button" id="mfa-out">Sign out</button>` : `<button class="btn-ghost" type="button" id="mfa-cancel">Cancel</button>`}</div>`);
+    $("#mfa-qr").src = qrSrc(data.totp.qr_code); $("#mfa-secret").textContent = data.totp.secret;
+    $("#mfa-form").onsubmit = async ev => { ev.preventDefault(); const code = $("#mfa-code").value.replace(/\D/g, "");
+      if (code.length !== 6) return mfaMsg("Enter the 6 digits from the app.");
+      const b = $("#mfa-form .btn-go"); b.disabled = true; mfaMsg("");
+      const { error: e } = await sb.auth.mfa.challengeAndVerify({ factorId: data.id, code });
+      b.disabled = false;
+      if (e) { $("#mfa-code").value = ""; return mfaMsg("That code didn't work. Check the phone's clock and use the newest code."); }
+      resolve(true); };
+    if (gateMode) { $("#mfa-later").onclick = () => { try { sessionStorage.setItem(MFA_LATER, "1"); } catch {} resolve(true); }; $("#mfa-out").onclick = () => { resolve(false); signOut(); }; }
+    else $("#mfa-cancel").onclick = async () => { try { await sb.auth.mfa.unenroll({ factorId: data.id }); } catch {} resolve(false); };
+  });
+}
+async function mfaManage() {
+  try {
+    const { data: f, error } = await sb.auth.mfa.listFactors(); if (error) throw error;
+    const ok = (f.totp || []).filter(x => x.status === "verified");
+    if (!ok.length) { const on = await mfaEnroll(false); show("app"); if (on) toast("2-step login is on", "check", "c-green", "Next logins ask for the code"); return; }
+    const r = await ask({ title: "2-step login is on", sees: `Nothing for clients. Turned on ${fDT(ok[0].created_at)}. Turning it off means your password alone opens the CRM again.`, cta: "Turn it off", danger: true }); if (!r) return;
+    const { error: e2 } = await sb.auth.mfa.unenroll({ factorId: ok[0].id }); if (e2) throw e2;
+    toast("2-step login is off", "alert", "c-orange", "Turn it back on from this menu");
+  } catch (e) { show("app"); toast("That didn't work", "alert", "c-red", cut(String(e && e.message || e), 140)); }
+}
+
 /* ---------------- auth gate ---------------- */
-const show = id => { ["boot", "gate", "wait", "app"].forEach(x => { $("#" + x).hidden = x !== id; }); $("#tabs").hidden = id !== "app"; };
+const show = id => { ["boot", "gate", "wait", "mfa", "app"].forEach(x => { $("#" + x).hidden = x !== id; }); $("#tabs").hidden = id !== "app"; };
 let MODE = "in", JUST_UP = false;
 function setMode(m) {
   MODE = m; $("#tab-in").classList.toggle("on", m === "in"); $("#tab-up").classList.toggle("on", m === "up");
@@ -1165,6 +1255,8 @@ async function enter(user) {
     if (!JUST_UP) { show("boot"); location.replace(PORTAL_HOME); return; }   // a client login belongs in the portal; only someone who just asked for a founder login waits here
     $("#wait-email").textContent = user.email || ""; show("wait"); return; }
   ME = { ...p, email: user.email || p.email };
+  try { if (!(await mfaGate())) return; }   // 2-step login before any founder data loads
+  catch (e) { ME = null; show("gate"); msg("The 2-step login check didn't work. Check your connection and log in again."); return; }
   $("#nav-site").href = $("#nav-web").href = SITE; $("#nav-portal").href = PORTAL;
   show("boot"); build(); mountHero();
   try { await refresh(); show("app"); startLoop(); startRealtime(); requestAnimationFrame(() => CARDS.forEach(c => fit(c.el))); measureFx();

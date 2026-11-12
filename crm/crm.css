@@ -989,3 +989,16 @@ html[data-motion="calm"] .ticker-t{animation:none;white-space:normal;flex-wrap:w
 @media (prefers-reduced-motion:reduce){.sheen::before,.bokeh i,.spark::after,.bar i::after,.fun .fb i::after,.trk .fill::after,.trk .head::after,#c-hot .tile::after,.it svg,.tabs svg,.pulse::after,.wave .w1,.wave .w2{animation:none!important}}
 @media (max-width:600px){html[data-motion="full"] .card.inview .it svg{animation:none}}
 .wait-row a{grid-column:1/-1;text-align:center;text-decoration:none}
+
+/* portal v2 hooks: threaded replies + founder 2-step login */
+.pt-lines .reply-l{display:block;margin:5px 0 0 10px;padding-left:9px;border-left:2px solid var(--line-2);font-size:.95em}
+.mfa-steps{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px;color:var(--ink-2,inherit)}
+.mfa-qr{display:flex;flex-wrap:wrap;align-items:center;gap:16px}
+.mfa-qr img{width:180px;height:180px;border-radius:14px;background:#fff;padding:8px}
+.mfa-qr code{display:block;max-width:240px;font:500 13px/1.5 var(--mono,monospace);word-break:break-all;user-select:all}
+#mfa-form{display:grid;gap:12px}
+#mfa-code{font:600 22px var(--mono,monospace);letter-spacing:.3em;text-align:center}
+/* 11-12 portal v2: the review-copy file field never widens the dialog on phones */
+.dlg .fld{min-width:0}
+.dlg .fld input{width:100%;min-width:0;box-sizing:border-box}
+.dlg .fld input[type=file]{padding:9px 10px;font-size:14px}
