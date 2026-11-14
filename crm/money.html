@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-theme="frost" data-mode="light" data-motion="full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://zfnpvcrnujxlycmqukqs.supabase.co wss://zfnpvcrnujxlycmqukqs.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="robots" content="noindex,nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#eef1f8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BEJÚ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<title>Money · BEJÚ</title>
+<link rel="icon" href="../favicon.ico">
+<link rel="preload" href="fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin>
+<script src="theme.js?v=20261112p3"></script>
+<link rel="stylesheet" href="crm.css?v=20261112p3">
+<link rel="stylesheet" href="money.css?v=20261114m1">
+</head>
+<body>
+<svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19zM12 10v4.5M12 17.2v.3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4h11l-1.5 4L16 12H5"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/></symbol>
+</svg>
+
+<div id="boot" class="boot" aria-label="Loading"><span class="spin"></span>Loading the money…</div>
+
+<main id="fail" class="gate" hidden>
+  <div class="gate-card">
+    <div class="brandrow"><span class="logo"><img src="../beju-mark-sm.png" alt="" width="34" height="20"></span><div><b>Beju Creative</b><small>Founder <em class="sf">Money</em></small></div></div>
+    <p class="wait-p" id="fail-t"></p>
+    <div class="wait-row"><a class="btn-go" href="./">Open the Founder CRM</a></div>
+  </div>
+</main>
+
+<div id="app" class="app mp" hidden>
+  <header class="top">
+    <a class="top-brand" href="./" title="Back to the Founder CRM"><span class="logo"><img src="../beju-mark-sm.png" alt="" width="34" height="20"></span><span>Beju Creative</span></a>
+    <nav class="top-nav" aria-label="Beju Creative">
+      <a href="./">Founder CRM</a>
+      <a class="on" href="money.html" aria-current="page">Money</a>
+    </nav>
+    <div class="top-tools">
+      <span class="chip o" id="demo-chip" hidden>Demo data</span>
+      <a class="icon-btn m-back" href="./" aria-label="Back to the Founder CRM" title="Founder CRM"><svg><use href="#i-back"/></svg></a>
+      <button type="button" class="icon-btn" id="refresh" aria-label="Load the latest numbers" title="Refresh"><svg><use href="#i-refresh"/></svg></button>
+    </div>
+  </header>
+
+  <section id="alerts" class="m-alerts" aria-label="Alerts" aria-live="polite"></section>
+  <section id="kpi" class="card feat m-hero" aria-label="This month"></section>
+  <div class="m-grid">
+    <div class="m-col">
+      <section class="card" id="c-bills" aria-label="Bills"></section>
+      <section class="card" id="c-transfers" aria-label="Transfers and profit taken"></section>
+    </div>
+    <div class="m-col">
+      <section class="card" id="c-stripe" aria-label="Stripe balance"></section>
+      <section class="card" id="c-payouts" aria-label="Payouts per founder"></section>
+      <section class="card" id="c-split" aria-label="50/50 position"></section>
+    </div>
+  </div>
+  <p class="m-foot" id="foot"></p>
+</div>
+
+<noscript><p class="gate">This page needs JavaScript turned on.</p></noscript>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
+<script src="config.js?v=20261112p3"></script>
+<script src="money.js?v=20261114m1"></script>
+</body>
+</html>

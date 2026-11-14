@@ -1,1 +1,4 @@
 .DS_Store
+
+# Money page demo data: a copy of the REAL finance snapshot (11-14). Local preview only, never publish.
+crm/money-demo.json
