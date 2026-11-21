@@ -274,6 +274,20 @@ const ACTIONS: Record<string, (a: any, actor: string, db: DB) => Promise<unknown
     const at = vilnius(a, "at") ?? new Date().toISOString();
     return (await must<any[]>(db.from("order_items").update({ posted_at: at, updated_at: new Date().toISOString() }).eq("id", item.id).select()))[0];
   },
+  // ---- founder approvals (crm_drafts1.sql; BENAS 11-21 lane 3: big deals + scopes, client problems, new terms, big names)
+  // A Claude can only CREATE a pending draft and read the list. Approving is a founder action in the CRM (is_admin + MFA);
+  // the plain draft-sender sends only the exact approved text, and only if the thread hasn't moved since reply_to_id.
+  async draft_create(a, actor, db) {   // {lead, inbox, reply_to_id, category, reason, body}
+    const body = { lead_email: email(a, "lead")!, inbox: email(a, "inbox")!, reply_to_id: str(a, "reply_to_id", { req: true, max: 80 })!,
+      category: oneOf(str(a, "category", { req: true, max: 20 }), ["big_deal", "client_problem", "new_terms", "big_name", "other"], "category"),
+      reason: str(a, "reason", { max: 500 }), body: str(a, "body", { req: true, max: 8000 })!, created_by: actor };
+    return (await must<any[]>(db.from("drafts").insert(body).select("id,lead_email,inbox,category,status,created_at")))[0];
+  },
+  async drafts(a, _actor, db) {   // {all?}: waiting drafts (pending / held / approved); all=true adds the last 50 decided
+    if (!a?.all) return await must(db.from("drafts_waiting").select("*"));
+    return await must(db.from("drafts").select("id,lead_email,inbox,category,status,created_by,created_at,decided_by,decided_at,sent_at,error")
+      .order("created_at", { ascending: false }).limit(50));
+  },
 };
 
 // The one Short a revision/posted fact is about: by order id, or by the client's exact name when only ONE order has that number.
